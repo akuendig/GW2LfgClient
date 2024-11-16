@@ -9,8 +9,6 @@ using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
-using System.Net.Http;
-using Gw2Sharp.WebApi.Http;
 
 namespace Gw2Lfg
 {
@@ -28,6 +26,7 @@ namespace Gw2Lfg
         private LfgView _lfgView;
         private LfgViewModel _viewModel = new();
         private SettingEntry<string> _apiKeySetting;
+        private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
 
         [ImportingConstructor]
@@ -79,8 +78,11 @@ namespace Gw2Lfg
 
             _moduleIcon.Click += ModuleIcon_Click;
 
-            var httpClient = new System.Net.Http.HttpClient();
-            _client = new LfgClient(httpClient, "http://localhost:5001", _apiKeySetting.Value);
+            var httpClient = new System.Net.Http.HttpClient() {
+                BaseAddress = new Uri("http://localhost:5001"),
+            };
+            _grpcClient = new SimpleGrpcWebClient(httpClient);
+            _client = new LfgClient(_grpcClient, _apiKeySetting.Value);
 
             _lfgWindow = new StandardWindow(
                 ContentsManager.GetTexture("textures/mainwindow_background.png"), // The background texture of the window.
