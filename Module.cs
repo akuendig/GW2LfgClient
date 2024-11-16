@@ -9,8 +9,8 @@ using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
-using Grpc.Core;
-using System.IO;
+using System.Net.Http;
+using Gw2Sharp.WebApi.Http;
 
 namespace Gw2Lfg
 {
@@ -28,7 +28,6 @@ namespace Gw2Lfg
         private LfgView _lfgView;
         private LfgViewModel _viewModel = new();
         private SettingEntry<string> _apiKeySetting;
-        private Channel _channel;
         private LfgClient _client;
 
         [ImportingConstructor]
@@ -79,23 +78,10 @@ namespace Gw2Lfg
                 "GW2 LFG");
 
             _moduleIcon.Click += ModuleIcon_Click;
-            string nativeLibPath = Path.Combine(DirectoriesManager.GetFullDirectoryPath("grpc_library"), "grpc_csharp_ext.x64.dll");
-            using (var destinationStream = new FileStream(nativeLibPath, FileMode.Create, FileAccess.Write))
-            {
-                ContentsManager.GetFileStream("grpc_library/grpc_csharp_ext.x64.dll").CopyTo(destinationStream);
-            }
-            if (File.Exists(nativeLibPath))
-            {
-                // Set environment variable to help Grpc.Core find the native library
-                Environment.SetEnvironmentVariable("GRPC_CSHARP_EXT_OVERRIDE_LOCATION", nativeLibPath);
-            }
-            else
-            {
-                Logger.Error("GRPC native library not found at: " + nativeLibPath);
-            }
-            
-            _channel = new Channel("http://localhost:5001", ChannelCredentials.Insecure);
-            _client = new LfgClient(_channel, _apiKeySetting.Value);
+
+            var httpClient = new System.Net.Http.HttpClient();
+            _client = new LfgClient(httpClient, "http://localhost:5001", _apiKeySetting.Value);
+
             _lfgWindow = new StandardWindow(
                 ContentsManager.GetTexture("textures/mainwindow_background.png"), // The background texture of the window.
                                                                                   // AsyncTexture2D.FromAssetId(155997),
@@ -143,7 +129,6 @@ namespace Gw2Lfg
         protected override void Unload()
         {
             _moduleIcon?.Dispose();
-            _channel?.ShutdownAsync();
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
         }
 
