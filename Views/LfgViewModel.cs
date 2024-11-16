@@ -6,7 +6,6 @@ namespace Gw2Lfg
     // Example implementation
     public class LfgViewModel
     {
-        
         private string _accountName = "";
         public string AccountName
         {
@@ -16,6 +15,19 @@ namespace Gw2Lfg
                     return;
                 _accountName = value;
                 AccountNameChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountName)));
+            }
+        }
+        public event PropertyChangedEventHandler ApiKeyChanged;
+
+        private string _apiKey = "";
+        public string ApiKey
+        {
+            get => _apiKey;
+            set {
+                if (_apiKey == value)
+                    return;
+                _apiKey = value;
+                ApiKeyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountName)));
             }
         }
         public event PropertyChangedEventHandler AccountNameChanged;

@@ -6,26 +6,25 @@ using Microsoft.Xna.Framework;
 using System.Threading.Tasks;
 using Blish_HUD.Modules.Managers;
 using System;
+using System.ComponentModel;
 
 namespace Gw2Lfg
 {
     public class LfgView : View
     {
         private readonly LfgClient _client;
-        private readonly string _apiKey;
-        private readonly LfgViewModel _model;
+        private readonly LfgViewModel _viewModel;
         private readonly Task _listenerTask;
         private readonly Gw2ApiManager _gw2ApiManager;
         private readonly IDisposable _accountNameSubscription;
 
-        public LfgView(LfgClient client, string apiKey, LfgViewModel viewModel, Gw2ApiManager gw2ApiManager)
+        public LfgView(LfgClient client, LfgViewModel viewModel, Gw2ApiManager gw2ApiManager)
         {
             _client = client;
-            _apiKey = apiKey;
-            _model = viewModel;
+            _viewModel = viewModel;
             _gw2ApiManager = gw2ApiManager;
 
-            _listenerTask = _client.StartListening();
+            _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
         protected override void Unload()
@@ -34,7 +33,12 @@ namespace Gw2Lfg
             _accountNameSubscription?.Dispose();
         }
 
-        protected override void Build(Container buildPanel)
+        private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            _client.ApiKey=_viewModel.ApiKey;
+        }
+
+        protected override void Build(Blish_HUD.Controls.Container buildPanel)
         {
             var leftPanel = new Panel
             {
@@ -109,17 +113,17 @@ namespace Gw2Lfg
                 ShowBorder = true,
                 Padding = new Thickness(10, 90, 0, 10),
             };
-            BuildGroupPanels(groupsFlowPanel, _model.Groups);
+            BuildGroupPanels(groupsFlowPanel, _viewModel.Groups);
             var filteredGroups = new List<Proto.Group>();
             var updateGroups = new Action(() =>
             {
-                filteredGroups = _model.Groups.FindAll(
+                filteredGroups = _viewModel.Groups.FindAll(
                     g => g.Title.ToLower().Contains(searchBox.Text.Trim().ToLower())
                 );
                 BuildGroupPanels(groupsFlowPanel, filteredGroups);
             });
             searchBox.TextChanged += (sender, e) => updateGroups();
-            _model.GroupsChanged += (sender, e) => updateGroups();
+            _viewModel.GroupsChanged += (sender, e) => updateGroups();
         }
         private void BuildGroupPanels(FlowPanel parent, IEnumerable<Proto.Group> groups)
         {
@@ -197,7 +201,7 @@ namespace Gw2Lfg
             };
             var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel);
             createGroupPanel.Show();
-            var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _model.Groups[0]);
+            var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups[0]);
         }
 
         private Panel BuildCreateGroupPanel(Panel parent)
@@ -291,8 +295,15 @@ namespace Gw2Lfg
             {
                 var kpId = StringToKpId(requirementsDropdown.SelectedItem);
                 var minKp = 0u;
-                uint.TryParse(requirementsNumber.Text, out  minKp);
-                await _client.CreateGroup(descriptionBox.Text, minKp, kpId);
+                uint.TryParse(requirementsNumber.Text, out minKp);
+                try
+                {
+                    var group = await _client.CreateGroup(descriptionBox.Text, minKp, kpId);
+                }
+                catch (Exception ex)
+                {
+                    ScreenNotification.ShowNotification(ex.Message);
+                }
             };
 
             // This panel overlays the create group panel since only

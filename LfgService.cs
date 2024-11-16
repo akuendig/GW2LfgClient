@@ -7,34 +7,24 @@ using Gw2Lfg.Proto;
 
 namespace Gw2Lfg
 {
-    public class LfgClient : IDisposable
+    public class LfgClient
     {
         private static readonly Logger Logger = Logger.GetLogger<Gw2LfgModule>();
-        private CancellationTokenSource _cts = new();
-        private readonly string _clientId;
-        private readonly string _apiKey;
         private readonly SimpleGrpcWebClient _client;
+    
+        public string ApiKey { get; set; }
 
-        public event Action<Group> OnNewGroup;
-        public event Action<Group> OnGroupUpdated;
-        public event Action<Group> OnGroupRemoved;
-
-        public LfgClient(SimpleGrpcWebClient client, string key)
+        public LfgClient(SimpleGrpcWebClient client, string apiKey)
         {
             _client = client;
-            _clientId = Guid.NewGuid().ToString();
-        }
-
-        public async Task StartListening()
-        {
-            // Implement HTTP-based listening logic here
+            ApiKey = apiKey;
         }
 
         public async Task<Group> CreateGroup(string title, uint KillProofMinimum, KillProofId killProofId)
         {
             var request = new CreateGroupRequest
             {
-                ClientKey = _apiKey,
+                ClientKey = ApiKey,
                 Title = title,
                 KillProofMinimum = KillProofMinimum,
                 KillProofId = killProofId,
@@ -47,7 +37,7 @@ namespace Gw2Lfg
         {
             var request = new JoinGroupRequest
             {
-                ClientKey = _apiKey,
+                ClientKey = ApiKey,
                 GroupId = groupId,
                 RoleName = role,
             };
@@ -58,16 +48,10 @@ namespace Gw2Lfg
         {
             var request = new SubscribeToApplicationsRequest
             {
-                ClientKey = _apiKey,
+                ClientKey = ApiKey,
                 GroupId = groupId,
             };
             return _client.ServerStreamingCallAsync<SubscribeToApplicationsRequest, JoinGroupRequest>("/gw2lfg.LfgService/SubscribeToApplications", request);
-        }
-
-        public void Dispose()
-        {
-            _cts.Cancel();
-            _cts.Dispose();
         }
     }
 }

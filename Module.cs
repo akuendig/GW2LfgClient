@@ -37,11 +37,6 @@ namespace Gw2Lfg
 
         protected override void DefineSettings(SettingCollection settings)
         {
-            _apiKeySetting = settings.DefineSetting(
-                "ApiKey",
-                "",
-                () => "GW2 API Key",
-                () => "API key with progression access");
         }
 
         //
@@ -54,6 +49,7 @@ namespace Gw2Lfg
             // Load any necessary resources
             await base.LoadAsync();
             await TrySetAccountName();
+            await TrySetApiKey();
             // while (!Gw2ApiManager.HasPermission(Gw2Sharp.WebApi.V2.Models.TokenPermission.Account))
             // {
             //     await Task.Delay(100);
@@ -78,11 +74,12 @@ namespace Gw2Lfg
 
             _moduleIcon.Click += ModuleIcon_Click;
 
-            var httpClient = new System.Net.Http.HttpClient() {
+            var httpClient = new System.Net.Http.HttpClient()
+            {
                 BaseAddress = new Uri("http://localhost:5001"),
             };
             _grpcClient = new SimpleGrpcWebClient(httpClient);
-            _client = new LfgClient(_grpcClient, _apiKeySetting.Value);
+            _client = new LfgClient(_grpcClient, "");
 
             _lfgWindow = new StandardWindow(
                 ContentsManager.GetTexture("textures/mainwindow_background.png"), // The background texture of the window.
@@ -115,7 +112,7 @@ namespace Gw2Lfg
             });
 #endif
 
-            _lfgView = new LfgView(_client, _apiKeySetting.Value, _viewModel, ModuleParameters.Gw2ApiManager);
+            _lfgView = new LfgView(_client, _viewModel, ModuleParameters.Gw2ApiManager);
             _viewModel.AccountNameChanged += (sender, args) =>
             {
                 _lfgWindow.Subtitle = _viewModel.AccountName;
@@ -136,7 +133,11 @@ namespace Gw2Lfg
 
         private async void OnSubtokenUpdated(object sender, EventArgs e)
         {
-            await TrySetAccountName();
+            await Task.WhenAll(
+                TrySetAccountName(),
+                TrySetApiKey()
+            );
+
         }
 
         private async Task TrySetAccountName()
@@ -151,6 +152,23 @@ namespace Gw2Lfg
                 catch (Exception ex)
                 {
                     Logger.Error(ex, "Failed to get account name");
+                }
+            }
+        }
+
+        private async Task TrySetApiKey()
+        {
+            if (Gw2ApiManager.HasPermission(Gw2Sharp.WebApi.V2.Models.TokenPermission.Account))
+            {
+                try
+                {
+                    var subtoken = await Gw2ApiManager.Gw2ApiClient.V2.CreateSubtoken.WithPermissions(
+                        [Gw2Sharp.WebApi.V2.Models.TokenPermission.Account]).GetAsync();
+                    _viewModel.ApiKey = subtoken.Subtoken;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Failed to get subtoken");
                 }
             }
         }
