@@ -62,25 +62,24 @@ namespace Gw2Lfg
             return await _client.UnaryCallAsync<ListGroupsRequest, ListGroupsResponse>("/gw2lfg.LfgService/ListGroups", request);
         }
 
-        public async Task<JoinGroupResponse> JoinGroup(string groupId, string role, string apiKey)
+        public async Task<JoinGroupResponse> JoinGroup(string groupId)
         {
             var request = new JoinGroupRequest
             {
                 ClientKey = ApiKey,
                 GroupId = groupId,
-                RoleName = role,
             };
             return await _client.UnaryCallAsync<JoinGroupRequest, JoinGroupResponse>("/gw2lfg.LfgService/JoinGroup", request);
         }
 
-        public IAsyncEnumerable<JoinGroupRequest> SubscribeToApplications(string groupId)
+        public IAsyncEnumerable<GroupApplication> SubscribeToApplications(string groupId)
         {
             var request = new SubscribeToApplicationsRequest
             {
                 ClientKey = ApiKey,
                 GroupId = groupId,
             };
-            return _client.ServerStreamingCallAsync<SubscribeToApplicationsRequest, JoinGroupRequest>("/gw2lfg.LfgService/SubscribeToApplications", request);
+            return _client.ServerStreamingCallAsync<SubscribeToApplicationsRequest, GroupApplication>("/gw2lfg.LfgService/SubscribeToApplications", request);
         }
 
         public IAsyncEnumerable<GroupsUpdate> SubscribeGroups()

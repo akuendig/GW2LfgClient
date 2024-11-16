@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Gw2Lfg
 {
@@ -44,5 +45,22 @@ namespace Gw2Lfg
             }
         }
         public event PropertyChangedEventHandler GroupsChanged;
+
+        public Proto.Group MyGroup {
+            get => Groups.FirstOrDefault(g => g.CreatorId == AccountName);
+        }
+
+        private IEnumerable<Proto.GroupApplication> _groupApplications = [];
+        public IEnumerable<Proto.GroupApplication> GroupApplications
+        {
+            get => _groupApplications;
+            set {
+                if (_groupApplications == value)
+                    return;
+                _groupApplications = value;
+                GroupApplicationsChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupApplications)));
+            }
+        }
+        public event PropertyChangedEventHandler GroupApplicationsChanged;
     }
 }

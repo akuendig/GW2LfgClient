@@ -30,6 +30,7 @@ namespace Gw2Lfg
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
         private Task _groupUpdatesSubscriber;
+        private Task _applicationUpdatesSubscriber;
 
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
@@ -54,7 +55,8 @@ namespace Gw2Lfg
                 TrySetAccountName(),
                 TrySetApiKey()
             );
-            TrySubscribeGroups();
+            await TrySubscribeGroups();
+            TrySubscribeApplications();
             // while (!Gw2ApiManager.HasPermission(Gw2Sharp.WebApi.V2.Models.TokenPermission.Account))
             // {
             //     await Task.Delay(100);
@@ -104,6 +106,10 @@ namespace Gw2Lfg
             _viewModel.AccountNameChanged += (sender, args) =>
             {
                 _lfgWindow.Subtitle = _viewModel.AccountName;
+            };
+            _viewModel.GroupsChanged += (sender, args) =>
+            {
+                TrySubscribeApplications();
             };
 
 #if DEBUG
@@ -177,7 +183,7 @@ namespace Gw2Lfg
             }
         }
 
-        private async void TrySubscribeGroups()
+        private async Task TrySubscribeGroups()
         {
             if (_viewModel.ApiKey == "")
             {
@@ -185,7 +191,8 @@ namespace Gw2Lfg
             }
             if (_groupUpdatesSubscriber != null)
             {
-                _groupUpdatesSubscriber.Dispose();
+                // TODO: properly cancel the previous subscription
+                // _groupUpdatesSubscriber.Dispose();
             }
             _groupUpdatesSubscriber = Task.Run(async () =>
             {
@@ -216,6 +223,30 @@ namespace Gw2Lfg
             {
                 Logger.Error(ex, "Failed to list groups");
             }
+        }
+
+        private async void TrySubscribeApplications()
+        {
+            if (_viewModel.ApiKey == "")
+            {
+                return;
+            }
+            if (_applicationUpdatesSubscriber != null)
+            {
+                // TODO: properly cancel the previous subscription
+                // _applicationUpdatesSubscriber.Dispose();
+            }
+            if (_viewModel.MyGroup == null)
+            {
+                return;
+            }
+            _applicationUpdatesSubscriber = Task.Run(async () =>
+            {
+                await foreach (var application in _client.SubscribeToApplications(_viewModel.MyGroup.Id))
+                {
+                    _viewModel.GroupApplications = _viewModel.GroupApplications.Append(application).ToArray();
+                }
+            });
         }
 
         protected override void OnModuleLoaded(EventArgs e)

@@ -189,6 +189,17 @@ namespace Gw2Lfg
                 Height = 30,
                 Text = "Apply",
             };
+            applyButton.Click += async (sender, e) =>
+            {
+                try
+                {
+                    await _client.JoinGroup(group.Id);
+                }
+                catch (Exception ex)
+                {
+                    ScreenNotification.ShowNotification(ex.Message);
+                }
+            };
         }
 
         private void BuildGroupManagementPanel(Panel parent)
@@ -199,11 +210,11 @@ namespace Gw2Lfg
                 Height = parent.Height,
                 Width = parent.Width - 10,
             };
-            var myGroup = _viewModel.Groups.Where(g => g.CreatorId == _viewModel.AccountName).FirstOrDefault();
+            var myGroup = _viewModel.MyGroup;
             var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
             _viewModel.GroupsChanged += (sender, e) =>
             {
-                var myNewGroup = _viewModel.Groups.Where(g => g.CreatorId == _viewModel.AccountName).FirstOrDefault();
+                var myNewGroup = _viewModel.MyGroup;
                 if (myNewGroup?.Id == myGroup?.Id)
                 {
                     return;
@@ -401,13 +412,15 @@ namespace Gw2Lfg
                     ControlPadding = new Vector2(10, 5),
                     ShowBorder = true,
                 };
-                BuildApplicantPanel(applicationsList);
+                BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
+                _viewModel.GroupApplicationsChanged +=
+                  (sender, e) => BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
             }
 
             return createGroupPanel;
         }
 
-        private Panel BuildApplicantPanel(FlowPanel parent)
+        private Panel BuildApplicantPanel(FlowPanel parent, IEnumerable<Proto.GroupApplication> applications)
         {
             var applicantPanel = new Panel
             {
@@ -415,14 +428,17 @@ namespace Gw2Lfg
                 HeightSizingMode = SizingMode.AutoSize,
                 Width = parent.Width - 20,
             };
-            var applicantName = new Label
+            foreach (var application in applications)
             {
-                Parent = applicantPanel,
-                Text = "Applicant Name",
-                Height = 30,
-                Width = 150,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-            };
+                var applicantName = new Label
+                {
+                    Parent = applicantPanel,
+                    Text = application.AccountName,
+                    Height = 30,
+                    Width = 150,
+                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+                };
+            }
             return applicantPanel;
         }
 
