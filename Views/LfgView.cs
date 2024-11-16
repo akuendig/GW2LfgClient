@@ -201,7 +201,7 @@ namespace Gw2Lfg
             };
             var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel);
             createGroupPanel.Show();
-            var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups.First());
+            //var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups.First());
         }
 
         private Panel BuildCreateGroupPanel(Panel parent)

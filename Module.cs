@@ -177,11 +177,15 @@ namespace Gw2Lfg
             }
         }
 
-        private void TrySubscribeGroups()
+        private async void TrySubscribeGroups()
         {
             if (_viewModel.ApiKey == "")
             {
                 return;
+            }
+            if (_groupUpdatesSubscriber != null)
+            {
+                _groupUpdatesSubscriber.Dispose();
             }
             _groupUpdatesSubscriber = Task.Run(async () =>
             {
@@ -192,9 +196,9 @@ namespace Gw2Lfg
                         case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
                             _viewModel.Groups = _viewModel.Groups.Append(update.NewGroup).ToArray();
                             break;
-                        case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroup:
+                        case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
                             _viewModel.Groups = _viewModel.Groups.Where(
-                                g => g.Id != update.RemovedGroup.Id
+                                g => g.Id != update.RemovedGroupId
                             ).ToArray();
                             break;
                         case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
@@ -205,6 +209,13 @@ namespace Gw2Lfg
                     }
                 }
             });
+            try
+            {
+                _viewModel.Groups = (await _client.ListGroups()).Groups.ToArray();
+            } catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to list groups");
+            }
         }
 
         protected override void OnModuleLoaded(EventArgs e)

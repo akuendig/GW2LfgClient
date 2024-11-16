@@ -33,6 +33,25 @@ namespace Gw2Lfg
             return await _client.UnaryCallAsync<CreateGroupRequest, Group>("/gw2lfg.LfgService/CreateGroup", request);
         }
 
+        public async Task<DeleteGroupResponse> DeleteGroup(string groupId)
+        {
+            var request = new DeleteGroupRequest
+            {
+                ClientKey = ApiKey,
+                GroupId = groupId,
+            };
+            return await _client.UnaryCallAsync<DeleteGroupRequest, DeleteGroupResponse>("/gw2lfg.LfgService/DeleteGroup", request);
+        }
+
+        public async Task<ListGroupsResponse> ListGroups()
+        {
+            var request = new ListGroupsRequest
+            {
+                ClientKey = ApiKey,
+            };
+            return await _client.UnaryCallAsync<ListGroupsRequest, ListGroupsResponse>("/gw2lfg.LfgService/ListGroups", request);
+        }
+
         public async Task<JoinGroupResponse> JoinGroup(string groupId, string role, string apiKey)
         {
             var request = new JoinGroupRequest
