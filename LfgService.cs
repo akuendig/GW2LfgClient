@@ -20,7 +20,7 @@ namespace Gw2Lfg
             ApiKey = apiKey;
         }
 
-        public async Task<Group> CreateGroup(string title, uint KillProofMinimum, KillProofId killProofId)
+        public async Task<CreateGroupResponse> CreateGroup(string title, uint KillProofMinimum, KillProofId killProofId)
         {
             var request = new CreateGroupRequest
             {
@@ -30,7 +30,17 @@ namespace Gw2Lfg
                 KillProofId = killProofId,
             };
 
-            return await _client.UnaryCallAsync<CreateGroupRequest, Group>("/gw2lfg.LfgService/CreateGroup", request);
+            return await _client.UnaryCallAsync<CreateGroupRequest, CreateGroupResponse>("/gw2lfg.LfgService/CreateGroup", request);
+        }
+
+        public async Task<UpdateGroupResponse> UpdateGroup(Group group)
+        {
+            var request = new UpdateGroupRequest
+            {
+                ClientKey = ApiKey,
+                Group = group,
+            };
+            return await _client.UnaryCallAsync<UpdateGroupRequest, UpdateGroupResponse>("/gw2lfg.LfgService/UpdateGroup", request);
         }
 
         public async Task<DeleteGroupResponse> DeleteGroup(string groupId)

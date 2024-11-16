@@ -36,7 +36,7 @@ namespace Gw2Lfg
 
         private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
         {
-            _client.ApiKey=_viewModel.ApiKey;
+            _client.ApiKey = _viewModel.ApiKey;
         }
 
         protected override void Build(Blish_HUD.Controls.Container buildPanel)
@@ -199,12 +199,22 @@ namespace Gw2Lfg
                 Height = parent.Height,
                 Width = parent.Width - 10,
             };
-            var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel);
-            createGroupPanel.Show();
-            //var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups.First());
+            var myGroup = _viewModel.Groups.Where(g => g.CreatorId == _viewModel.AccountName).FirstOrDefault();
+            var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
+            _viewModel.GroupsChanged += (sender, e) =>
+            {
+                var myNewGroup = _viewModel.Groups.Where(g => g.CreatorId == _viewModel.AccountName).FirstOrDefault();
+                if (myNewGroup?.Id == myGroup?.Id)
+                {
+                    return;
+                }
+                myGroup = myNewGroup;
+                groupManagementPanel.ClearChildren();
+                createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
+            };
         }
 
-        private Panel BuildCreateGroupPanel(Panel parent)
+        private Panel BuildCreateGroupPanel(Panel parent, Proto.Group group = null)
         {
             var paddingPanel = new Panel
             {
@@ -221,7 +231,6 @@ namespace Gw2Lfg
                 Left = 10,
                 Width = parent.Width - 20,
                 Height = parent.Height - 20,
-                Visible = false,
             };
 
             int y = 0;
@@ -232,7 +241,8 @@ namespace Gw2Lfg
                 Top = y,
                 Height = 30,
                 Width = createGroupPanel.Width,
-                PlaceholderText = "Group Description"
+                PlaceholderText = "Group Description",
+                Text = group?.Title ?? "",
             };
             y += descriptionBox.Height + 10;
 
@@ -259,7 +269,7 @@ namespace Gw2Lfg
                 Parent = requirementsPanel,
                 Width = 50,
                 Height = 30,
-                Text = "",
+                Text = group?.KillProofMinimum.ToString() ?? "",
                 PlaceholderText = "0",
                 Left = requirementsPanel.Width - (50 + 90 + 10),
             };
@@ -275,87 +285,124 @@ namespace Gw2Lfg
             requirementsDropdown.Items.Add("UFE");
             requirementsDropdown.Items.Add("BSKP");
             requirementsDropdown.Items.Add("LI");
+            requirementsDropdown.SelectedItem = KpIdToString(group?.KillProofId ?? Proto.KillProofId.KpUnknown);
 
-            var createButtonPanel = new Panel
+            if (group == null)
             {
-                Parent = createGroupPanel,
-                Top = y,
-                Width = createGroupPanel.Width,
-                Height = 30,
-            };
-            var createButton = new StandardButton
-            {
-                Parent = createButtonPanel,
-                Width = 100,
-                Height = 30,
-                Left = (createButtonPanel.Width - 120) / 2,
-                Text = "Create"
-            };
-            createButton.Click += async (sender, e) =>
-            {
-                var kpId = StringToKpId(requirementsDropdown.SelectedItem);
-                var minKp = 0u;
-                uint.TryParse(requirementsNumber.Text, out minKp);
-                try
+                var createButtonPanel = new Panel
                 {
-                    var group = await _client.CreateGroup(descriptionBox.Text, minKp, kpId);
-                }
-                catch (Exception ex)
+                    Parent = createGroupPanel,
+                    Top = y,
+                    Width = createGroupPanel.Width,
+                    Height = 30,
+                };
+                var createButton = new StandardButton
                 {
-                    ScreenNotification.ShowNotification(ex.Message);
-                }
-            };
+                    Parent = createButtonPanel,
+                    Width = 100,
+                    Height = 30,
+                    Left = (createButtonPanel.Width - 120) / 2,
+                    Text = "Create"
+                };
+                createButton.Click += async (sender, e) =>
+                {
+                    var kpId = StringToKpId(requirementsDropdown.SelectedItem);
+                    uint.TryParse(requirementsNumber.Text, out uint minKp);
+                    try
+                    {
+                        var group = await _client.CreateGroup(descriptionBox.Text, minKp, kpId);
+                    }
+                    catch (Exception ex)
+                    {
+                        ScreenNotification.ShowNotification(ex.Message);
+                    }
+                };
+                y += createButtonPanel.Height + 40;
+            }
+            else
+            {
+                // This panel overlays the create group panel since only
+                // one of the two panels should be visible at a time.
+                var manageButtonPanel = new Panel
+                {
+                    Parent = createGroupPanel,
+                    Top = y,
+                    Width = createGroupPanel.Width,
+                    Height = 30,
+                };
+                var updateButton = new StandardButton
+                {
+                    Parent = manageButtonPanel,
+                    Width = 100,
+                    Height = 30,
+                    Left = (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
+                    Text = "Update"
+                };
+                updateButton.Click += async (sender, e) =>
+                {
+                    try
+                    {
+                        var kpId = StringToKpId(requirementsDropdown.SelectedItem);
+                        uint.TryParse(requirementsNumber.Text, out uint minKp);
+                        await _client.UpdateGroup(
+                            new Proto.Group
+                            {
+                                Id = group.Id,
+                                Title = descriptionBox.Text,
+                                KillProofMinimum = minKp,
+                                KillProofId = kpId,
+                            }
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        ScreenNotification.ShowNotification(ex.Message);
+                    }
+                };
+                var cancelButton = new StandardButton
+                {
+                    Parent = manageButtonPanel,
+                    Width = 100,
+                    Height = 30,
+                    Right = manageButtonPanel.Width - (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
+                    Text = "Cancel"
+                };
+                cancelButton.Click += async (sender, e) =>
+                {
+                    try
+                    {
+                        await _client.DeleteGroup(group.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        ScreenNotification.ShowNotification(ex.Message);
+                    }
+                };
+                y += manageButtonPanel.Height + 40;
 
-            // This panel overlays the create group panel since only
-            // one of the two panels should be visible at a time.
-            var manageButtonPanel = new Panel
-            {
-                Parent = createGroupPanel,
-                Top = y,
-                Width = createGroupPanel.Width,
-                Height = createButtonPanel.Height,
-                Visible = false,
-            };
-            var updateButton = new StandardButton
-            {
-                Parent = manageButtonPanel,
-                Width = 100,
-                Height = 30,
-                Left = (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
-                Text = "Update"
-            };
-            var cancelButton = new StandardButton
-            {
-                Parent = manageButtonPanel,
-                Width = 100,
-                Height = 30,
-                Left = 100 + 10 + (manageButtonPanel.Width - 100) / 2,
-                Text = "Cancel"
-            };
-            y += createButtonPanel.Height + 40;
+                var applicationsLabel = new Label
+                {
+                    Parent = createGroupPanel,
+                    Text = "Applications",
+                    Top = y,
+                    AutoSizeHeight = true,
+                    Width = createGroupPanel.Width,
+                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+                };
+                y += applicationsLabel.Height + 10;
 
-            var applicationsLabel = new Label
-            {
-                Parent = createGroupPanel,
-                Text = "Applications",
-                Top = y,
-                AutoSizeHeight = true,
-                Width = createGroupPanel.Width,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-            };
-            y += applicationsLabel.Height + 10;
-
-            var applicationsList = new FlowPanel
-            {
-                Parent = createGroupPanel,
-                Top = y,
-                Height = createGroupPanel.Height - y,
-                Width = createGroupPanel.Width,
-                FlowDirection = ControlFlowDirection.TopToBottom,
-                ControlPadding = new Vector2(10, 5),
-                ShowBorder = true,
-            };
-            BuildApplicantPanel(applicationsList);
+                var applicationsList = new FlowPanel
+                {
+                    Parent = createGroupPanel,
+                    Top = y,
+                    Height = createGroupPanel.Height - y,
+                    Width = createGroupPanel.Width,
+                    FlowDirection = ControlFlowDirection.TopToBottom,
+                    ControlPadding = new Vector2(10, 5),
+                    ShowBorder = true,
+                };
+                BuildApplicantPanel(applicationsList);
+            }
 
             return createGroupPanel;
         }
