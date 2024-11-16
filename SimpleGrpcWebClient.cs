@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Gw2Lfg
 {
@@ -26,7 +27,7 @@ namespace Gw2Lfg
             where TRequest : IMessage
             where TResponse : IMessage, new()
         {
-            var response = await SendGrpcWebRequest(methodName, request.ToByteArray());
+            var response = await SendGrpcWebRequest(methodName, request.ToByteArray(), false);
 
             // Read response bytes
             byte[] responseBytes = await response.Content.ReadAsByteArrayAsync();
@@ -85,7 +86,7 @@ namespace Gw2Lfg
             where TRequest : IMessage
             where TResponse : IMessage, new()
         {
-            var response = await SendGrpcWebRequest(methodName, request.ToByteArray());
+            var response = await SendGrpcWebRequest(methodName, request.ToByteArray(), true);
 
             using var stream = await response.Content.ReadAsStreamAsync();
             var frameHeaderSize = 5; // 1 byte flag + 4 bytes length
@@ -187,7 +188,7 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task<HttpResponseMessage> SendGrpcWebRequest(string methodName, byte[] messageBytes)
+        private async Task<HttpResponseMessage> SendGrpcWebRequest(string methodName, byte[] messageBytes, bool stream)
         {
             // Add 5 byte header (1 byte compression flag + 4 byte length)
             byte[] framedRequest = new byte[messageBytes.Length + 5];
@@ -202,12 +203,29 @@ namespace Gw2Lfg
                 Content = new ByteArrayContent(framedRequest)
             };
 
+            // Create a cancellation token source with a timeout
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(300));
+
             // Add required headers
+            httpRequest.Headers.Add("accept", GrpcWebFormat);
+            httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Headers.Add("x-grpc-web", "1");
             httpRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(GrpcWebFormat);
 
             // Send request
-            var response = await _httpClient.SendAsync(httpRequest);
+            HttpResponseMessage response;
+            if (stream)
+            {
+                response = await _httpClient.SendAsync(
+                    httpRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cts.Token
+                );
+            }
+            else
+            {
+                response = await _httpClient.SendAsync(httpRequest);
+            }
 
             // Check for successful response
             if (!response.IsSuccessStatusCode)

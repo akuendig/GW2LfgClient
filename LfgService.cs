@@ -53,5 +53,14 @@ namespace Gw2Lfg
             };
             return _client.ServerStreamingCallAsync<SubscribeToApplicationsRequest, JoinGroupRequest>("/gw2lfg.LfgService/SubscribeToApplications", request);
         }
+
+        public IAsyncEnumerable<GroupsUpdate> SubscribeGroups()
+        {
+            var request = new SubscribeGroupsRequest
+            {
+                ClientKey = ApiKey,
+            };
+            return _client.ServerStreamingCallAsync<SubscribeGroupsRequest, GroupsUpdate>("/gw2lfg.LfgService/SubscribeGroups", request);
+        }
     }
 }

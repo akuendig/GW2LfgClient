@@ -32,8 +32,8 @@ namespace Gw2Lfg
         }
         public event PropertyChangedEventHandler AccountNameChanged;
 
-        private List<Proto.Group> _groups = new();
-        public List<Proto.Group> Groups
+        private IEnumerable<Proto.Group> _groups = [];
+        public IEnumerable<Proto.Group> Groups
         {
             get => _groups;
             set {

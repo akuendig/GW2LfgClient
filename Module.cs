@@ -9,6 +9,7 @@ using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace Gw2Lfg
 {
@@ -28,6 +29,7 @@ namespace Gw2Lfg
         private SettingEntry<string> _apiKeySetting;
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
+        private Task _groupUpdatesSubscriber;
 
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
@@ -48,8 +50,11 @@ namespace Gw2Lfg
         {
             // Load any necessary resources
             await base.LoadAsync();
-            await TrySetAccountName();
-            await TrySetApiKey();
+            await Task.WhenAll(
+                TrySetAccountName(),
+                TrySetApiKey()
+            );
+            TrySubscribeGroups();
             // while (!Gw2ApiManager.HasPermission(Gw2Sharp.WebApi.V2.Models.TokenPermission.Account))
             // {
             //     await Task.Delay(100);
@@ -96,27 +101,26 @@ namespace Gw2Lfg
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
-
-#if DEBUG
-            _viewModel.Groups.Add(new Proto.Group
-            {
-                Id = "1",
-                Title = "Test Group without requirements"
-            });
-            _viewModel.Groups.Add(new Proto.Group
-            {
-                Id = "1",
-                Title = "Test Group",
-                KillProofId = Proto.KillProofId.KpLi,
-                KillProofMinimum = 250
-            });
-#endif
-
-            _lfgView = new LfgView(_client, _viewModel, ModuleParameters.Gw2ApiManager);
             _viewModel.AccountNameChanged += (sender, args) =>
             {
                 _lfgWindow.Subtitle = _viewModel.AccountName;
             };
+
+#if DEBUG
+            _viewModel.Groups = [new Proto.Group
+            {
+                Id = "1",
+                Title = "Test Group without requirements"
+            },
+            new Proto.Group{
+                Id = "1",
+                Title = "Test Group",
+                KillProofId = Proto.KillProofId.KpLi,
+                KillProofMinimum = 250
+            }];
+#endif
+
+            _lfgView = new LfgView(_client, _viewModel, ModuleParameters.Gw2ApiManager);
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
 
@@ -137,7 +141,7 @@ namespace Gw2Lfg
                 TrySetAccountName(),
                 TrySetApiKey()
             );
-
+            TrySubscribeGroups();
         }
 
         private async Task TrySetAccountName()
@@ -173,45 +177,35 @@ namespace Gw2Lfg
             }
         }
 
-        // private void InitializeWebSocket()
-        // {
-        //     var url = new Uri("ws://your-render-server/ws");
-        //     _wsClient = new WebsocketClient(url);
-
-        //     _wsClient.MessageReceived.Subscribe(msg => 
-        //     {
-        //         GameService.GameThread.Enqueue(() => HandleWebSocketMessage(msg));
-        //     });
-
-        //     _wsClient.ReconnectionHappened.Subscribe(info => 
-        //     {
-        //         Logger.Info($"Reconnected: {info.Type}");
-        //     });
-
-        //     _wsClient.Start();
-        // }
-
-        // private void HandleWebSocketMessage(ResponseMessage msg)
-        // {
-        //     try
-        //     {
-        //         var message = JsonSerializer.Deserialize<WebSocketMessage>(msg.Text);
-        //         switch (message.Type)
-        //         {
-        //             case "new_group":
-        //                 _lfgWindow?.AddGroup(message.Payload.ToObject<Group>());
-        //                 break;
-        //             case "application_status":
-        //                 _lfgWindow?.UpdateApplicationStatus(message.Payload.ToObject<ApplicationStatus>());
-        //                 break;
-        //             // Add more message handlers as needed
-        //         }
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         Logger.Error(ex, "Failed to handle WebSocket message");
-        //     }
-        // }
+        private void TrySubscribeGroups()
+        {
+            if (_viewModel.ApiKey == "")
+            {
+                return;
+            }
+            _groupUpdatesSubscriber = Task.Run(async () =>
+            {
+                await foreach (var update in _client.SubscribeGroups())
+                {
+                    switch (update.UpdateCase)
+                    {
+                        case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
+                            _viewModel.Groups = _viewModel.Groups.Append(update.NewGroup).ToArray();
+                            break;
+                        case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroup:
+                            _viewModel.Groups = _viewModel.Groups.Where(
+                                g => g.Id != update.RemovedGroup.Id
+                            ).ToArray();
+                            break;
+                        case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
+                            _viewModel.Groups = _viewModel.Groups.Select(
+                                g => g.Id == update.UpdatedGroup.Id ? update.UpdatedGroup : g
+                            ).ToArray();
+                            break;
+                    }
+                }
+            });
+        }
 
         protected override void OnModuleLoaded(EventArgs e)
         {

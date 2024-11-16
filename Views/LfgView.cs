@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel;
+using System.Linq;
 
 namespace Gw2Lfg
 {
@@ -114,12 +115,11 @@ namespace Gw2Lfg
                 Padding = new Thickness(10, 90, 0, 10),
             };
             BuildGroupPanels(groupsFlowPanel, _viewModel.Groups);
-            var filteredGroups = new List<Proto.Group>();
             var updateGroups = new Action(() =>
             {
-                filteredGroups = _viewModel.Groups.FindAll(
+                var filteredGroups = _viewModel.Groups.Where(
                     g => g.Title.ToLower().Contains(searchBox.Text.Trim().ToLower())
-                );
+                ).ToArray();
                 BuildGroupPanels(groupsFlowPanel, filteredGroups);
             });
             searchBox.TextChanged += (sender, e) => updateGroups();
@@ -201,7 +201,7 @@ namespace Gw2Lfg
             };
             var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel);
             createGroupPanel.Show();
-            var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups[0]);
+            var groupDetailPanel = BuildGroupDetailPanel(groupManagementPanel, _viewModel.Groups.First());
         }
 
         private Panel BuildCreateGroupPanel(Panel parent)
