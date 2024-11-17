@@ -10,6 +10,9 @@ using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
+using System.ComponentModel;
 
 namespace Gw2Lfg
 {
@@ -24,11 +27,15 @@ namespace Gw2Lfg
 
         private CornerIcon _moduleIcon;
         private StandardWindow _lfgWindow;
-        private LfgView _lfgView;
-        private LfgViewModel _viewModel = new();
-        private SettingEntry<string> _apiKeySetting;
+        private readonly HttpClient _httpClient = new()
+        {
+            BaseAddress = new Uri("http://localhost:5001"),
+        };
+        private CancellationTokenSource _cancellationTokenSource = new();
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
+        private LfgView _lfgView;
+        private readonly LfgViewModel _viewModel = new();
         private Task _groupUpdatesSubscriber;
         private Task _applicationUpdatesSubscriber;
 
@@ -37,11 +44,7 @@ namespace Gw2Lfg
         {
             // ModuleParameters is already assigned by the base class constructor
         }
-
-        protected override void DefineSettings(SettingCollection settings)
-        {
-        }
-
+        
         //
         // Summary:
         //     Load content and more here. This call is asynchronous, so it is a good time to
@@ -55,21 +58,6 @@ namespace Gw2Lfg
                 TrySetAccountName(),
                 TrySetApiKey()
             );
-            await TrySubscribeGroups();
-            TrySubscribeApplications();
-            // while (!Gw2ApiManager.HasPermission(Gw2Sharp.WebApi.V2.Models.TokenPermission.Account))
-            // {
-            //     await Task.Delay(100);
-            // }
-            // try
-            // {
-            //     var account = await ModuleParameters.Gw2ApiManager.Gw2ApiClient.V2.Account.GetAsync();
-            //     _viewModel.AccountName = account.Name;
-            // }
-            // catch (Exception ex)
-            // {
-            //     Logger.Error(ex, "Failed to get account name");
-            // }
         }
 
         protected override void Initialize()
@@ -78,15 +66,7 @@ namespace Gw2Lfg
                 // ContentsManager.GetTexture("icons/group.png"),
                 AsyncTexture2D.FromAssetId(156409),
                 "GW2 LFG");
-
             _moduleIcon.Click += ModuleIcon_Click;
-
-            var httpClient = new System.Net.Http.HttpClient()
-            {
-                BaseAddress = new Uri("http://localhost:5001"),
-            };
-            _grpcClient = new SimpleGrpcWebClient(httpClient);
-            _client = new LfgClient(_grpcClient, "");
 
             _lfgWindow = new StandardWindow(
                 ContentsManager.GetTexture("textures/mainwindow_background.png"), // The background texture of the window.
@@ -103,14 +83,13 @@ namespace Gw2Lfg
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
+
             _viewModel.AccountNameChanged += (sender, args) =>
             {
                 _lfgWindow.Subtitle = _viewModel.AccountName;
             };
-            _viewModel.GroupsChanged += (sender, args) =>
-            {
-                TrySubscribeApplications();
-            };
+            _viewModel.ApiKeyChanged += OnApiKeyChanged;
+            _viewModel.GroupsChanged += OnGroupsChanged;
 
 #if DEBUG
             _viewModel.Groups = [new Proto.Group
@@ -126,7 +105,9 @@ namespace Gw2Lfg
             }];
 #endif
 
-            _lfgView = new LfgView(_client, _viewModel, ModuleParameters.Gw2ApiManager);
+            _lfgView = new LfgView(_httpClient, _viewModel);
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
+            _client = new LfgClient(_grpcClient);
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
 
@@ -138,7 +119,10 @@ namespace Gw2Lfg
         protected override void Unload()
         {
             _moduleIcon?.Dispose();
+            _viewModel.ApiKeyChanged -= OnApiKeyChanged;
+            _viewModel.GroupsChanged -= OnGroupsChanged;
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
+            _cancellationTokenSource.Cancel();
         }
 
         private async void OnSubtokenUpdated(object sender, EventArgs e)
@@ -147,7 +131,20 @@ namespace Gw2Lfg
                 TrySetAccountName(),
                 TrySetApiKey()
             );
+        }
+
+        private void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource = new CancellationTokenSource();
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
+            _client = new LfgClient(_grpcClient);
             TrySubscribeGroups();
+        }
+
+        private void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
+        {
+            TrySubscribeApplications();
         }
 
         private async Task TrySetAccountName()
@@ -183,7 +180,7 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task TrySubscribeGroups()
+        private void TrySubscribeGroups()
         {
             if (_viewModel.ApiKey == "")
             {
@@ -196,6 +193,14 @@ namespace Gw2Lfg
             }
             _groupUpdatesSubscriber = Task.Run(async () =>
             {
+                try
+                {
+                    _viewModel.Groups = (await _client.ListGroups()).Groups.ToArray();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Failed to list groups");
+                }
                 await foreach (var update in _client.SubscribeGroups())
                 {
                     switch (update.UpdateCase)
@@ -215,17 +220,10 @@ namespace Gw2Lfg
                             break;
                     }
                 }
-            });
-            try
-            {
-                _viewModel.Groups = (await _client.ListGroups()).Groups.ToArray();
-            } catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to list groups");
-            }
+            }, _cancellationTokenSource.Token);
         }
 
-        private async void TrySubscribeApplications()
+        private void TrySubscribeApplications()
         {
             if (_viewModel.ApiKey == "")
             {
@@ -242,23 +240,26 @@ namespace Gw2Lfg
             }
             _applicationUpdatesSubscriber = Task.Run(async () =>
             {
-                await foreach (var application in _client.SubscribeToApplications(_viewModel.MyGroup.Id))
+                await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id))
                 {
-                    _viewModel.GroupApplications = _viewModel.GroupApplications.Append(application).ToArray();
+                    switch (update.UpdateCase)
+                    {
+                        case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
+                            _viewModel.GroupApplications = _viewModel.GroupApplications.Append(update.NewApplication).ToArray();
+                            break;
+                        case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
+                            //_viewModel.GroupApplications = _viewModel.GroupApplications.Where(
+                            //    g => g.Id != update.RemovedApplicationId
+                            //).ToArray();
+                            break;
+                        case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
+                            //_viewModel.GroupApplications = _viewModel.GroupApplications.Select(
+                            //    g => g.Id == update.UpdatedApplication.Id ? update.UpdatedApplication : g
+                            //).ToArray();
+                            break;
+                    }
                 }
-            });
-        }
-
-        protected override void OnModuleLoaded(EventArgs e)
-        {
-
-            // Base handler must be called
-            base.OnModuleLoaded(e);
-        }
-
-        protected override void Update(GameTime gameTime)
-        {
-            // Update any necessary UI elements
+            }, _cancellationTokenSource.Token);
         }
 
         private void ModuleIcon_Click(object sender, MouseEventArgs e)

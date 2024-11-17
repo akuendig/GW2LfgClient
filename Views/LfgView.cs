@@ -3,40 +3,48 @@ using Blish_HUD.Graphics.UI;
 using Blish_HUD;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
-using System.Threading.Tasks;
-using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Net.Http;
+using System.Threading;
 
 namespace Gw2Lfg
 {
     public class LfgView : View
     {
-        private readonly LfgClient _client;
+        private readonly HttpClient _httpClient;
         private readonly LfgViewModel _viewModel;
-        private readonly Task _listenerTask;
-        private readonly Gw2ApiManager _gw2ApiManager;
-        private readonly IDisposable _accountNameSubscription;
+        private SimpleGrpcWebClient _grpcClient;
+        private LfgClient _client;
+        private CancellationTokenSource _cancellationTokenSource;
 
-        public LfgView(LfgClient client, LfgViewModel viewModel, Gw2ApiManager gw2ApiManager)
+
+        public LfgView(HttpClient httpClient, LfgViewModel viewModel)
         {
-            _client = client;
+            _httpClient = httpClient;
             _viewModel = viewModel;
-            _gw2ApiManager = gw2ApiManager;
 
             _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
         protected override void Unload()
         {
-            _listenerTask?.Dispose();
-            _accountNameSubscription?.Dispose();
+            base.Unload();
+            _viewModel.ApiKeyChanged -= ApiKeyChanged;
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource = null;
+            _grpcClient = null;
+            _client = null;
         }
 
         private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
         {
-            _client.ApiKey = _viewModel.ApiKey;
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource = new CancellationTokenSource();
+            _grpcClient = new SimpleGrpcWebClient(
+                _httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
+            _client = new LfgClient(_grpcClient);
         }
 
         protected override void Build(Blish_HUD.Controls.Container buildPanel)
@@ -193,7 +201,7 @@ namespace Gw2Lfg
             {
                 try
                 {
-                    await _client.JoinGroup(group.Id);
+                    await _client.CreateGroupApplication(group.Id);
                 }
                 catch (Exception ex)
                 {
