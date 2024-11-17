@@ -35,8 +35,6 @@ namespace Gw2Lfg
         private LfgClient _client;
         private LfgView _lfgView;
         private readonly LfgViewModel _viewModel = new();
-        private Task _groupUpdatesSubscriber;
-        private Task _applicationUpdatesSubscriber;
 
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
@@ -200,12 +198,7 @@ namespace Gw2Lfg
             {
                 return;
             }
-            if (_groupUpdatesSubscriber != null)
-            {
-                // TODO: properly cancel the previous subscription
-                // _groupUpdatesSubscriber.Dispose();
-            }
-            _groupUpdatesSubscriber = Task.Run(async () =>
+            Task.Run(async () =>
             {
                 try
                 {
@@ -239,20 +232,17 @@ namespace Gw2Lfg
 
         private void TrySubscribeApplications()
         {
+            // TODO: Only run this when the view is visible because otherwise we run into
+            // a keep-alive timeout on the server.
             if (_viewModel.ApiKey == "")
             {
                 return;
-            }
-            if (_applicationUpdatesSubscriber != null)
-            {
-                // TODO: properly cancel the previous subscription
-                // _applicationUpdatesSubscriber.Dispose();
             }
             if (_viewModel.MyGroup == null)
             {
                 return;
             }
-            _applicationUpdatesSubscriber = Task.Run(async () =>
+            Task.Run(async () =>
             {
                 await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id))
                 {

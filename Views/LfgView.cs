@@ -25,6 +25,7 @@ namespace Gw2Lfg
             _httpClient = httpClient;
             _viewModel = viewModel;
 
+            ReinitializeClients();
             _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
@@ -39,6 +40,11 @@ namespace Gw2Lfg
         }
 
         private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            ReinitializeClients();
+        }
+
+        private void ReinitializeClients()
         {
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource = new CancellationTokenSource();
@@ -421,6 +427,7 @@ namespace Gw2Lfg
                     ShowBorder = true,
                 };
                 BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
+                // TODO: Seems like this doesn't get cleaned up properly when the group is deleted.
                 _viewModel.GroupApplicationsChanged +=
                   (sender, e) => BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
             }
