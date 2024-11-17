@@ -22,15 +22,14 @@ namespace Gw2Lfg
         private static readonly Logger Logger = Logger.GetLogger<Gw2LfgModule>();
 
         private ContentsManager ContentsManager => ModuleParameters.ContentsManager;
+        private SettingsManager SettingsManager => ModuleParameters.SettingsManager;
         private DirectoriesManager DirectoriesManager => ModuleParameters.DirectoriesManager;
         private Gw2ApiManager Gw2ApiManager => ModuleParameters.Gw2ApiManager;
 
         private CornerIcon _moduleIcon;
         private StandardWindow _lfgWindow;
-        private readonly HttpClient _httpClient = new()
-        {
-            BaseAddress = new Uri("http://127.0.0.1:50051"),
-        };
+        private SettingEntry<string> _serverAddressSetting;
+        private readonly HttpClient _httpClient = new();
         private CancellationTokenSource _cancellationTokenSource = new();
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
@@ -44,7 +43,17 @@ namespace Gw2Lfg
         {
             // ModuleParameters is already assigned by the base class constructor
         }
-        
+
+        protected override void DefineSettings(SettingCollection settings)
+        {
+            _serverAddressSetting = settings.DefineSetting(
+                "serverAddress",
+                "http://127.0.0.1:50051",
+                () => "Server Address",
+                () => "The address of the backend server used to coordinate groups."
+            );
+        }
+
         //
         // Summary:
         //     Load content and more here. This call is asynchronous, so it is a good time to
@@ -62,6 +71,11 @@ namespace Gw2Lfg
 
         protected override void Initialize()
         {
+            _httpClient.BaseAddress = new Uri(_serverAddressSetting.Value);
+            _serverAddressSetting.SettingChanged += (sender, args) =>
+            {
+                _httpClient.BaseAddress = new Uri(_serverAddressSetting.Value);
+            };
             _moduleIcon = new CornerIcon(
                 // ContentsManager.GetTexture("icons/group.png"),
                 AsyncTexture2D.FromAssetId(156409),
