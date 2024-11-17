@@ -29,7 +29,7 @@ namespace Gw2Lfg
         private StandardWindow _lfgWindow;
         private readonly HttpClient _httpClient = new()
         {
-            BaseAddress = new Uri("http://localhost:5001"),
+            BaseAddress = new Uri("http://127.0.0.1:50051"),
         };
         private CancellationTokenSource _cancellationTokenSource = new();
         private SimpleGrpcWebClient _grpcClient;

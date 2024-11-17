@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Net.Http.Headers;
 
 namespace Gw2Lfg
 {
@@ -15,7 +16,6 @@ namespace Gw2Lfg
         private readonly HttpClient _httpClient;
         private readonly CancellationToken _cancellationToken;
         private const string GrpcWebFormat = "application/grpc-web+proto";
-        private const string AuthHeaderName = "Authorization";
         private const string GrpcStatusHeader = "grpc-status";
         private const string GrpcMessageHeader = "grpc-message";
 
@@ -211,21 +211,17 @@ namespace Gw2Lfg
             Array.Copy(lengthBytes, 0, framedRequest, 1, 4);
             Array.Copy(messageBytes, 0, framedRequest, 5, messageBytes.Length);
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(300));
-
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, methodName)
             {
                 Content = new ByteArrayContent(framedRequest)
             };
 
             // Add required headers
-            httpRequest.Headers.Add("accept", GrpcWebFormat);
-            httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Headers.Add("x-grpc-web", "1");
-            httpRequest.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(GrpcWebFormat);
-
-            // Add authentication header using the client's API key
-            httpRequest.Headers.Add(AuthHeaderName, FormatAuthHeader());
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(GrpcWebFormat));
+            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            httpRequest.Headers.TransferEncodingChunked = true;
+            httpRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GrpcWebFormat);
 
             HttpResponseMessage response;
             if (stream)
@@ -233,12 +229,14 @@ namespace Gw2Lfg
                 response = await _httpClient.SendAsync(
                     httpRequest,
                     HttpCompletionOption.ResponseHeadersRead,
-                    cts.Token
+                    _cancellationToken
                 );
             }
             else
             {
-                response = await _httpClient.SendAsync(httpRequest);
+                response = await _httpClient.SendAsync(
+                    httpRequest,
+                    _cancellationToken);
             }
 
             if (!response.IsSuccessStatusCode)
