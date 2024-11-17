@@ -82,13 +82,12 @@ namespace Gw2Lfg
                 "GW2 LFG");
             _moduleIcon.Click += ModuleIcon_Click;
 
+            // Note that the windowRegion and contentRegion are matched to the size of the background image.
             _lfgWindow = new StandardWindow(
-                ContentsManager.GetTexture("textures/mainwindow_background.png"), // The background texture of the window.
-                                                                                  // AsyncTexture2D.FromAssetId(155997),
-                new Rectangle(40, 26, 913, 691),              // The windowRegion
-                new Rectangle(70, 71, 839, 605)              // The contentRegion
-                                                             // new Point(913, 691)                          // The size of the window
-                )
+                ContentsManager.GetTexture("textures/mainwindow_background.png"),
+                new Rectangle(40, 26, 913, 691),  // The windowRegion
+                new Rectangle(70, 71, 839, 605)   // The contentRegion
+            )
             {
                 Parent = GameService.Graphics.SpriteScreen,
                 Title = "Community LFG",
@@ -104,7 +103,7 @@ namespace Gw2Lfg
                 _lfgWindow.Subtitle = _viewModel.AccountName;
             };
             _viewModel.ApiKeyChanged += OnApiKeyChanged;
-            _viewModel.GroupsChanged += OnGroupsChanged;
+            _viewModel.MyGroupChanged += OnMyGroupChanged;
 
 #if DEBUG
             _viewModel.Groups = [new Proto.Group
@@ -135,7 +134,6 @@ namespace Gw2Lfg
         {
             _moduleIcon?.Dispose();
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
-            _viewModel.GroupsChanged -= OnGroupsChanged;
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
             _apiKeyCts.Cancel();
             _groupsSubCts.Cancel();
@@ -159,8 +157,9 @@ namespace Gw2Lfg
             TrySubscribeGroups();
         }
 
-        private void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
+        private void OnMyGroupChanged(object sender, PropertyChangedEventArgs e)
         {
+            _viewModel.GroupApplications = [];
             TrySubscribeApplications();
         }
 
@@ -253,6 +252,9 @@ namespace Gw2Lfg
             }
             Task.Run(async () =>
             {
+                _viewModel.GroupApplications = [.. (
+                    await _client.ListGroupApplications(_viewModel.MyGroup.Id, _applicationsSubCts.Token)
+                ).Applications];
                 await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id, _applicationsSubCts.Token))
                 {
                     switch (update.UpdateCase)
@@ -293,13 +295,13 @@ namespace Gw2Lfg
             {
                 if (_lfgWindow.Visible)
                 {
-                TrySubscribeGroups();
-                TrySubscribeApplications();
+                    TrySubscribeGroups();
+                    TrySubscribeApplications();
                 }
                 else
                 {
-                _groupsSubCts?.Cancel();
-                _applicationsSubCts?.Cancel();
+                    _groupsSubCts?.Cancel();
+                    _applicationsSubCts?.Cancel();
                 }
             }
         }

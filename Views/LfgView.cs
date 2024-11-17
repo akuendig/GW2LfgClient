@@ -29,16 +29,6 @@ namespace Gw2Lfg
             _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
-        protected override void Unload()
-        {
-            base.Unload();
-            _viewModel.ApiKeyChanged -= ApiKeyChanged;
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource = null;
-            _grpcClient = null;
-            _client = null;
-        }
-
         private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
         {
             ReinitializeClients();
@@ -226,14 +216,8 @@ namespace Gw2Lfg
             };
             var myGroup = _viewModel.MyGroup;
             var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
-            _viewModel.GroupsChanged += (sender, e) =>
+            _viewModel.MyGroupChanged += (sender, e) =>
             {
-                var myNewGroup = _viewModel.MyGroup;
-                if (myNewGroup?.Id == myGroup?.Id)
-                {
-                    return;
-                }
-                myGroup = myNewGroup;
                 groupManagementPanel.ClearChildren();
                 createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
             };
@@ -246,7 +230,7 @@ namespace Gw2Lfg
                 Parent = parent,
                 Width = parent.Width,
                 Height = parent.Height,
-                Title = "Create Group",
+                Title = group == null ? "Create Group" : "Manage Group",
             };
 
             var createGroupPanel = new Panel
@@ -390,7 +374,7 @@ namespace Gw2Lfg
                     Width = 100,
                     Height = 30,
                     Right = manageButtonPanel.Width - (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
-                    Text = "Cancel"
+                    Text = "Close"
                 };
                 cancelButton.Click += async (sender, e) =>
                 {
@@ -424,36 +408,78 @@ namespace Gw2Lfg
                     Width = createGroupPanel.Width,
                     FlowDirection = ControlFlowDirection.TopToBottom,
                     ControlPadding = new Vector2(10, 5),
-                    ShowBorder = true,
                 };
-                BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
-                // TODO: Seems like this doesn't get cleaned up properly when the group is deleted.
-                _viewModel.GroupApplicationsChanged +=
-                  (sender, e) => BuildApplicantPanel(applicationsList, _viewModel.GroupApplications);
+                AppendApplicants(applicationsList, _viewModel.GroupApplications);
+                _viewModel.GroupApplicationsChanged += (sender, e) =>
+                {
+                    applicationsList.ClearChildren();
+                    AppendApplicants(applicationsList, _viewModel.GroupApplications);
+                };
             }
 
             return createGroupPanel;
         }
 
-        private Panel BuildApplicantPanel(FlowPanel parent, IEnumerable<Proto.GroupApplication> applications)
+        private void AppendApplicants(FlowPanel parent, IEnumerable<Proto.GroupApplication> applications)
+        {
+            foreach (var application in applications)
+            {
+                BuildSingleApplicantPanel(parent, application);
+            }
+        }
+
+        private Panel BuildSingleApplicantPanel(Panel parent, Proto.GroupApplication application)
         {
             var applicantPanel = new Panel
             {
                 Parent = parent,
-                HeightSizingMode = SizingMode.AutoSize,
-                Width = parent.Width - 20,
+                Height = 60,
+                Width = parent.Width,
+                ShowBorder = true,
             };
-            foreach (var application in applications)
+            var applicantInfoPanel = new Panel
             {
-                var applicantName = new Label
+                Parent = applicantPanel,
+                Left = 10,
+                Top = 5,
+                HeightSizingMode = SizingMode.AutoSize,
+                Width = applicantPanel.Width - 120,
+            };
+            var titleLabel = new Label
+            {
+                Parent = applicantInfoPanel,
+                Text = application.AccountName,
+                AutoSizeHeight = true,
+                Width = applicantInfoPanel.Width,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+            };
+            var buttonPanel = new Panel
+            {
+                Parent = applicantPanel,
+                Left = applicantPanel.Width - 110,
+                Top = 5,
+                Width = 100,
+                Height = applicantPanel.Height,
+            };
+            var acceptButton = new StandardButton
+            {
+                Parent = buttonPanel,
+                Width = 100,
+                Height = 30,
+                Left = (buttonPanel.Width - 100) / 2,
+                Text = "Invite",
+            };
+            acceptButton.Click += async (sender, e) =>
+            {
+                try
                 {
-                    Parent = applicantPanel,
-                    Text = application.AccountName,
-                    Height = 30,
-                    Width = 150,
-                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-                };
-            }
+                    GameService.GameIntegration.Chat.Send("/sqinvite " + application.AccountName);
+                }
+                catch (Exception ex)
+                {
+                    ScreenNotification.ShowNotification(ex.Message);
+                }
+            };
             return applicantPanel;
         }
 

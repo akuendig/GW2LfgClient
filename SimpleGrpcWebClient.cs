@@ -178,7 +178,9 @@ namespace Gw2Lfg
                     int bytesRead = await stream.ReadAsync(
                         messageBuffer,
                         totalBytesRead,
-                        messageLength - totalBytesRead
+                        messageLength - totalBytesRead,
+                        CancellationTokenSource.CreateLinkedTokenSource(
+                            cancellationToken, _cancellationToken).Token
                     );
 
                     if (bytesRead == 0)
