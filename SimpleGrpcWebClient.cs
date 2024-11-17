@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 
 namespace Gw2Lfg
 {
@@ -24,15 +25,6 @@ namespace Gw2Lfg
             _httpClient = httpClient;
             _apiKey = apiKey;
             _cancellationToken = cancellationToken;
-        }
-
-        private string FormatAuthHeader()
-        {
-            if (string.IsNullOrEmpty(_apiKey))
-            {
-                throw new InvalidOperationException("API key must be set before making requests");
-            }
-            return $"Bearer {_apiKey}";
         }
 
         private void HandleGrpcError(HttpResponseMessage response)
@@ -62,11 +54,13 @@ namespace Gw2Lfg
 
         public async Task<TResponse> UnaryCallAsync<TRequest, TResponse>(
             string methodName,
-            TRequest request)
+            TRequest request,
+            CancellationToken cancellationToken = default)
             where TRequest : IMessage
             where TResponse : IMessage, new()
         {
-            var response = await SendGrpcWebRequest(methodName, request.ToByteArray(), false);
+            var response = await SendGrpcWebRequest(
+                methodName, request.ToByteArray(), false, cancellationToken);
             HandleGrpcError(response);
 
             byte[] responseBytes = await response.Content.ReadAsByteArrayAsync();
@@ -99,11 +93,12 @@ namespace Gw2Lfg
 
         public async IAsyncEnumerable<TResponse> ServerStreamingCallAsync<TRequest, TResponse>(
             string methodName,
-            TRequest request)
+            TRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
             where TRequest : IMessage
             where TResponse : IMessage, new()
         {
-            var response = await SendGrpcWebRequest(methodName, request.ToByteArray(), true);
+            var response = await SendGrpcWebRequest(methodName, request.ToByteArray(), true, cancellationToken);
             HandleGrpcError(response);
 
             using var stream = await response.Content.ReadAsStreamAsync();
@@ -203,7 +198,8 @@ namespace Gw2Lfg
         private async Task<HttpResponseMessage> SendGrpcWebRequest(
             string methodName,
             byte[] messageBytes,
-            bool stream)
+            bool stream,
+            CancellationToken cancellationToken)
         {
             byte[] framedRequest = new byte[messageBytes.Length + 5];
             framedRequest[0] = 0; // No compression
@@ -223,30 +219,18 @@ namespace Gw2Lfg
             httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GrpcWebFormat);
 
-            HttpResponseMessage response;
-            if (stream)
-            {
-                response = await _httpClient.SendAsync(
-                    httpRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    _cancellationToken
-                );
-            }
-            else
-            {
-                response = await _httpClient.SendAsync(
-                    httpRequest,
-                    _cancellationToken);
-            }
+            var completionOption = stream
+                ? HttpCompletionOption.ResponseHeadersRead
+                : HttpCompletionOption.ResponseContentRead;
 
-            if (!response.IsSuccessStatusCode)
-            {
-                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                {
-                    throw new UnauthorizedAccessException("Authentication failed");
-                }
-                throw new Exception($"HTTP error: {response.StatusCode}");
-            }
+            var response = await _httpClient.SendAsync(
+                httpRequest,
+                completionOption,
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken, _cancellationToken).Token
+            );
+
+            response.EnsureSuccessStatusCode();
 
             return response;
         }

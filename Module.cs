@@ -30,7 +30,9 @@ namespace Gw2Lfg
         private StandardWindow _lfgWindow;
         private SettingEntry<string> _serverAddressSetting;
         private readonly HttpClient _httpClient = new();
-        private CancellationTokenSource _cancellationTokenSource = new();
+        private CancellationTokenSource _apiKeyCts = new();
+        private CancellationTokenSource _groupsSubCts = new();
+        private CancellationTokenSource _applicationsSubCts = new();
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
         private LfgView _lfgView;
@@ -95,6 +97,7 @@ namespace Gw2Lfg
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
+            _lfgWindow.PropertyChanged += LfgWindow_PropertyChanged;
 
             _viewModel.AccountNameChanged += (sender, args) =>
             {
@@ -118,7 +121,7 @@ namespace Gw2Lfg
 #endif
 
             _lfgView = new LfgView(_httpClient, _viewModel);
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _apiKeyCts.Token);
             _client = new LfgClient(_grpcClient);
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
@@ -134,7 +137,9 @@ namespace Gw2Lfg
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
             _viewModel.GroupsChanged -= OnGroupsChanged;
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
-            _cancellationTokenSource.Cancel();
+            _apiKeyCts.Cancel();
+            _groupsSubCts.Cancel();
+            _applicationsSubCts.Cancel();
         }
 
         private async void OnSubtokenUpdated(object sender, EventArgs e)
@@ -147,9 +152,9 @@ namespace Gw2Lfg
 
         private void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
         {
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource = new CancellationTokenSource();
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
+            _apiKeyCts?.Cancel();
+            _apiKeyCts = new CancellationTokenSource();
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _apiKeyCts.Token);
             _client = new LfgClient(_grpcClient);
             TrySubscribeGroups();
         }
@@ -194,6 +199,8 @@ namespace Gw2Lfg
 
         private void TrySubscribeGroups()
         {
+            _groupsSubCts?.Cancel();
+            _groupsSubCts = new CancellationTokenSource();
             if (_viewModel.ApiKey == "")
             {
                 return;
@@ -202,13 +209,15 @@ namespace Gw2Lfg
             {
                 try
                 {
-                    _viewModel.Groups = (await _client.ListGroups()).Groups.ToArray();
+                    _viewModel.Groups = [.. (
+                        await _client.ListGroups(_groupsSubCts.Token)
+                    ).Groups];
                 }
                 catch (Exception ex)
                 {
                     Logger.Error(ex, "Failed to list groups");
                 }
-                await foreach (var update in _client.SubscribeGroups())
+                await foreach (var update in _client.SubscribeGroups(_groupsSubCts.Token))
                 {
                     switch (update.UpdateCase)
                     {
@@ -227,13 +236,13 @@ namespace Gw2Lfg
                             break;
                     }
                 }
-            }, _cancellationTokenSource.Token);
+            }, _groupsSubCts.Token);
         }
 
         private void TrySubscribeApplications()
         {
-            // TODO: Only run this when the view is visible because otherwise we run into
-            // a keep-alive timeout on the server.
+            _applicationsSubCts?.Cancel();
+            _applicationsSubCts = new CancellationTokenSource();
             if (_viewModel.ApiKey == "")
             {
                 return;
@@ -244,7 +253,7 @@ namespace Gw2Lfg
             }
             Task.Run(async () =>
             {
-                await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id))
+                await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id, _applicationsSubCts.Token))
                 {
                     switch (update.UpdateCase)
                     {
@@ -263,7 +272,7 @@ namespace Gw2Lfg
                             break;
                     }
                 }
-            }, _cancellationTokenSource.Token);
+            }, _applicationsSubCts.Token);
         }
 
         private void ModuleIcon_Click(object sender, MouseEventArgs e)
@@ -275,6 +284,23 @@ namespace Gw2Lfg
             else
             {
                 _lfgWindow.Hide();
+            }
+        }
+
+        private void LfgWindow_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "Visible")
+            {
+                if (_lfgWindow.Visible)
+                {
+                TrySubscribeGroups();
+                TrySubscribeApplications();
+                }
+                else
+                {
+                _groupsSubCts?.Cancel();
+                _applicationsSubCts?.Cancel();
+                }
             }
         }
     }
