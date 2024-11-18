@@ -221,17 +221,13 @@ namespace Gw2Lfg
                     switch (update.UpdateCase)
                     {
                         case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
-                            _viewModel.Groups = _viewModel.Groups.Append(update.NewGroup).ToArray();
+                            _viewModel.AddGroup(update.NewGroup);
                             break;
                         case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
-                            _viewModel.Groups = _viewModel.Groups.Where(
-                                g => g.Id != update.RemovedGroupId
-                            ).ToArray();
+                            _viewModel.RemoveGroup(update.RemovedGroupId);
                             break;
                         case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
-                            _viewModel.Groups = _viewModel.Groups.Select(
-                                g => g.Id == update.UpdatedGroup.Id ? update.UpdatedGroup : g
-                            ).ToArray();
+                            _viewModel.UpdateGroup(update.UpdatedGroup);
                             break;
                     }
                 }

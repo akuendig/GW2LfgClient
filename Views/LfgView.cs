@@ -1,27 +1,68 @@
+#nullable enable
+
 using Blish_HUD.Controls;
 using Blish_HUD.Graphics.UI;
-using Blish_HUD;
-using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using System;
-using System.ComponentModel;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Linq;
+using Blish_HUD;
 using System.Net.Http;
 using System.Threading;
 
 namespace Gw2Lfg
 {
-    public class LfgView : View
+    public class GroupPanel : Panel
     {
-        private readonly HttpClient _httpClient;
-        private readonly LfgViewModel _viewModel;
-        private SimpleGrpcWebClient _grpcClient;
-        private LfgClient _client;
+        public Proto.Group Group { get; set; }
+
+        public GroupPanel(Proto.Group group)
+        {
+            Group = group;
+            HeightSizingMode = SizingMode.AutoSize;
+            ShowBorder = true;
+        }
+    }
+
+    public class ApplicationPanel : Panel
+    {
+        public Proto.GroupApplication Application { get; set; }
+
+        public ApplicationPanel(Proto.GroupApplication application)
+        {
+            Application = application;
+            Height = 60;
+            ShowBorder = true;
+        }
+    }
+    public class LfgView : View, IDisposable
+    {
+        private const int PADDING = 10;
+        private bool _disposed;
         private CancellationTokenSource _cancellationTokenSource;
+        private HttpClient _httpClient;
+        private SimpleGrpcWebClient _grpcClient = null!;
+        private LfgClient _lfgClient = null!;
+        private readonly Dictionary<string, GroupPanel> _groupPanels = [];
+        private readonly Dictionary<string, ApplicationPanel> _applicationPanels = [];
+        private readonly LfgViewModel _viewModel;
+        private LfgViewModel ViewModel { get => _viewModel; }
 
-
+        private FlowPanel? _groupsFlowPanel;
+        private FlowPanel? _applicationsList;
+        private TextBox? _searchBox;
+        private Dropdown? _contentTypeDropdown;
+        private Panel? _groupManagementPanel;
+        private StandardButton? _createButton;
+        private TextBox? _descriptionBox;
+        private Panel? _requirementsPanel;
+        private TextBox? _requirementsNumber;
+        private Dropdown? _requirementsDropdown;
+        
         public LfgView(HttpClient httpClient, LfgViewModel viewModel)
         {
+            _cancellationTokenSource = new CancellationTokenSource();
             _httpClient = httpClient;
             _viewModel = viewModel;
 
@@ -29,7 +70,7 @@ namespace Gw2Lfg
             _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
-        private void ApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        private void ApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             ReinitializeClients();
         }
@@ -40,10 +81,16 @@ namespace Gw2Lfg
             _cancellationTokenSource = new CancellationTokenSource();
             _grpcClient = new SimpleGrpcWebClient(
                 _httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
-            _client = new LfgClient(_grpcClient);
+            _lfgClient = new LfgClient(_grpcClient);
         }
 
-        protected override void Build(Blish_HUD.Controls.Container buildPanel)
+        protected override void Build(Container buildPanel)
+        {
+            BuildMainLayout(buildPanel);
+            RegisterEventHandlers();
+        }
+
+        private void BuildMainLayout(Container buildPanel)
         {
             var leftPanel = new Panel
             {
@@ -51,507 +98,697 @@ namespace Gw2Lfg
                 Width = (int)(buildPanel.ContentRegion.Width * 0.6f),
                 Height = buildPanel.ContentRegion.Height,
             };
+
             var rightPanel = new Panel
             {
                 Parent = buildPanel,
-                Left = leftPanel.Right + 40,
-                Width = buildPanel.ContentRegion.Width - leftPanel.Width - 40,
+                Left = leftPanel.Right + PADDING,
+                Width = buildPanel.ContentRegion.Width - leftPanel.Width - PADDING,
                 Height = buildPanel.ContentRegion.Height,
                 ShowBorder = true,
             };
-            BuildGroupPanel(leftPanel);
-            BuildGroupManagementPanel(rightPanel);
+
+            BuildGroupListPanel(leftPanel);
+            BuildManagementPanel(rightPanel);
         }
 
-        private void BuildGroupPanel(Panel parent)
+        private void BuildGroupListPanel(Panel parent)
         {
-            var groupListPanel = new Panel
+            var container = new Panel
             {
                 Parent = parent,
-                Height = parent.Height - 10,
-                Width = parent.Width - 20,
-                Left = 10,
-                Top = 5,
+                Height = parent.Height - PADDING,
+                Width = parent.Width - (PADDING * 2),
+                Left = PADDING,
+                Top = PADDING,
             };
 
-            var y = 0;
+            BuildFilterControls(container);
+            BuildGroupsList(container);
+        }
+
+        private void BuildFilterControls(Panel parent)
+        {
             var filterPanel = new Panel
             {
-                Parent = groupListPanel,
-                Top = y,
+                Parent = parent,
                 Height = 40,
-                Width = groupListPanel.Width,
+                Width = parent.Width,
             };
-            y += filterPanel.Height + 10;
 
-            var contentTypeDropdown = new Dropdown
+            _contentTypeDropdown = new Dropdown
             {
                 Parent = filterPanel,
                 Top = 5,
                 Height = 30,
                 Width = 120,
             };
-            contentTypeDropdown.Items.Add("All");
-            contentTypeDropdown.Items.Add("Fractals");
-            contentTypeDropdown.Items.Add("Raids");
-            contentTypeDropdown.Items.Add("Strike Missions");
-            contentTypeDropdown.Items.Add("Open World");
 
-            var searchBox = new TextBox
+            PopulateContentTypeDropdown();
+
+            _searchBox = new TextBox
             {
                 Parent = filterPanel,
-                Left = contentTypeDropdown.Right + 10,
+                Left = _contentTypeDropdown.Right + PADDING,
                 Top = 5,
                 Height = 30,
-                Width = filterPanel.Width - contentTypeDropdown.Right - 20,
+                Width = filterPanel.Width - _contentTypeDropdown.Right - (PADDING * 2),
                 PlaceholderText = "Search groups...",
             };
 
-            var groupsFlowPanel = new FlowPanel
+            // Debounce search to avoid excessive updates
+            var debounceTimer = new System.Timers.Timer(300);
+            debounceTimer.Elapsed += (s, e) =>
             {
-                Parent = groupListPanel,
-                Top = y,
-                Height = groupListPanel.Height - y,
-                Width = groupListPanel.Width,
+                debounceTimer.Stop();
+                ApplyFilters();
+            };
+
+            _searchBox.TextChanged += (s, e) =>
+            {
+                debounceTimer.Stop();
+                debounceTimer.Start();
+            };
+
+            _contentTypeDropdown.ValueChanged += (s, e) => ApplyFilters();
+        }
+
+        private void BuildGroupsList(Panel parent)
+        {
+            _groupsFlowPanel = new FlowPanel
+            {
+                Parent = parent,
+                Top = 50,
+                Height = parent.Height - 50,
+                Width = parent.Width,
                 FlowDirection = ControlFlowDirection.TopToBottom,
                 ControlPadding = new Vector2(0, 5),
                 ShowBorder = true,
-                Padding = new Thickness(10, 90, 0, 10),
+                CanCollapse = true,
+                HeightSizingMode = SizingMode.Fill,
             };
-            BuildGroupPanels(groupsFlowPanel, _viewModel.Groups);
-            var updateGroups = new Action(() =>
-            {
-                var filteredGroups = _viewModel.Groups.Where(
-                    g => g.Title.ToLower().Contains(searchBox.Text.Trim().ToLower())
-                ).ToArray();
-                BuildGroupPanels(groupsFlowPanel, filteredGroups);
-            });
-            searchBox.TextChanged += (sender, e) => updateGroups();
-            _viewModel.GroupsChanged += (sender, e) => updateGroups();
-        }
-        private void BuildGroupPanels(FlowPanel parent, IEnumerable<Proto.Group> groups)
-        {
-            parent.ClearChildren();
-            foreach (var group in groups)
-            {
-                BuildGroupListPanel(parent, group);
-            }
         }
 
-        private void BuildGroupListPanel(FlowPanel parent, Proto.Group group)
+        private void BuildManagementPanel(Panel parent)
         {
-            var groupPanel = new Panel
+            _groupManagementPanel = new Panel
             {
                 Parent = parent,
-                HeightSizingMode = SizingMode.AutoSize,
-                Width = parent.Width,
-                ShowBorder = true,
+                Width = parent.Width - (PADDING * 2),
+                Height = parent.Height - (PADDING * 2),
             };
-            var groupInfoPanel = new Panel
-            {
-                Parent = groupPanel,
-                Left = 10,
-                Top = 5,
-                Width = groupPanel.Width - (100 + 10),
-            };
-            var titleLabel = new Label
-            {
-                Parent = groupInfoPanel,
-                Text = group.Title,
-                AutoSizeHeight = true,
-                Width = groupInfoPanel.Width,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-            };
-            int y = titleLabel.Bottom;
-            string kpString = KpString(group.KillProofId, group.KillProofMinimum);
-            if (kpString.Length > 0)
-            {
-                var requirementsLabel = new Label
-                {
-                    Parent = groupInfoPanel,
-                    Text = KpString(group.KillProofId, group.KillProofMinimum),
-                    Top = y,
-                    AutoSizeHeight = true,
-                    Width = groupInfoPanel.Width,
-                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular),
-                };
-                y += requirementsLabel.Height;
-            }
-            groupInfoPanel.Height = y + 10;
-            var buttonPanel = new Panel
-            {
-                Parent = groupPanel,
-                Left = groupPanel.Width - (100 + 20),
-                Width = 100,
-                Height = groupInfoPanel.Height,
-            };
-            var applyButton = new StandardButton
-            {
-                Parent = buttonPanel,
-                Top = (buttonPanel.Height - 30) / 2,
-                Width = 100,
-                Height = 30,
-                Text = "Apply",
-            };
-            applyButton.Click += async (sender, e) =>
-            {
-                try
-                {
-                    await _client.CreateGroupApplication(group.Id);
-                }
-                catch (Exception ex)
-                {
-                    ScreenNotification.ShowNotification(ex.Message);
-                }
-            };
+
+            RefreshManagementPanel();
         }
 
-        private void BuildGroupManagementPanel(Panel parent)
+        private void RefreshManagementPanel()
         {
-            var groupManagementPanel = new Panel()
-            {
-                Parent = parent,
-                Height = parent.Height,
-                Width = parent.Width - 10,
-            };
-            var myGroup = _viewModel.MyGroup;
-            var createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
-            _viewModel.MyGroupChanged += (sender, e) =>
-            {
-                groupManagementPanel.ClearChildren();
-                createGroupPanel = BuildCreateGroupPanel(groupManagementPanel, myGroup);
-            };
-        }
+            _groupManagementPanel.ClearChildren();
 
-        private Panel BuildCreateGroupPanel(Panel parent, Proto.Group group = null)
-        {
-            var paddingPanel = new Panel
+            if (ViewModel.MyGroup == null)
             {
-                Parent = parent,
-                Width = parent.Width,
-                Height = parent.Height,
-                Title = group == null ? "Create Group" : "Manage Group",
-            };
-
-            var createGroupPanel = new Panel
-            {
-                Parent = paddingPanel,
-                Top = 10,
-                Left = 10,
-                Width = parent.Width - 20,
-                Height = parent.Height - 20,
-            };
-
-            int y = 0;
-
-            var descriptionBox = new TextBox
-            {
-                Parent = createGroupPanel,
-                Top = y,
-                Height = 30,
-                Width = createGroupPanel.Width,
-                PlaceholderText = "Group Description",
-                Text = group?.Title ?? "",
-            };
-            y += descriptionBox.Height + 10;
-
-            var requirementsPanel = new Panel
-            {
-                Parent = createGroupPanel,
-                Top = y,
-                Height = 30,
-                Width = createGroupPanel.Width,
-            };
-            y += requirementsPanel.Height + 10;
-
-            var requirementsLabel = new Label
-            {
-                Parent = requirementsPanel,
-                Text = "Required KP:",
-                Height = 30,
-                Width = 70,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular),
-            };
-
-            var requirementsNumber = new TextBox
-            {
-                Parent = requirementsPanel,
-                Width = 50,
-                Height = 30,
-                Text = group?.KillProofMinimum.ToString() ?? "",
-                PlaceholderText = "0",
-                Left = requirementsPanel.Width - (50 + 90 + 10),
-            };
-
-            var requirementsDropdown = new Dropdown
-            {
-                Parent = requirementsPanel,
-                Width = 90,
-                Height = 30,
-                Left = requirementsPanel.Width - (90),
-            };
-            requirementsDropdown.Items.Add("");
-            requirementsDropdown.Items.Add("UFE");
-            requirementsDropdown.Items.Add("BSKP");
-            requirementsDropdown.Items.Add("LI");
-            requirementsDropdown.SelectedItem = KpIdToString(group?.KillProofId ?? Proto.KillProofId.KpUnknown);
-
-            if (group == null)
-            {
-                var createButtonPanel = new Panel
-                {
-                    Parent = createGroupPanel,
-                    Top = y,
-                    Width = createGroupPanel.Width,
-                    Height = 30,
-                };
-                var createButton = new StandardButton
-                {
-                    Parent = createButtonPanel,
-                    Width = 100,
-                    Height = 30,
-                    Left = (createButtonPanel.Width - 120) / 2,
-                    Text = "Create"
-                };
-                createButton.Click += async (sender, e) =>
-                {
-                    var kpId = StringToKpId(requirementsDropdown.SelectedItem);
-                    uint.TryParse(requirementsNumber.Text, out uint minKp);
-                    try
-                    {
-                        var group = await _client.CreateGroup(descriptionBox.Text, minKp, kpId);
-                    }
-                    catch (Exception ex)
-                    {
-                        ScreenNotification.ShowNotification(ex.Message);
-                    }
-                };
-                y += createButtonPanel.Height + 40;
+                BuildCreateGroupPanel();
             }
             else
             {
-                // This panel overlays the create group panel since only
-                // one of the two panels should be visible at a time.
-                var manageButtonPanel = new Panel
-                {
-                    Parent = createGroupPanel,
-                    Top = y,
-                    Width = createGroupPanel.Width,
-                    Height = 30,
-                };
-                var updateButton = new StandardButton
-                {
-                    Parent = manageButtonPanel,
-                    Width = 100,
-                    Height = 30,
-                    Left = (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
-                    Text = "Update"
-                };
-                updateButton.Click += async (sender, e) =>
-                {
-                    try
-                    {
-                        var kpId = StringToKpId(requirementsDropdown.SelectedItem);
-                        uint.TryParse(requirementsNumber.Text, out uint minKp);
-                        await _client.UpdateGroup(
-                            new Proto.Group
-                            {
-                                Id = group.Id,
-                                Title = descriptionBox.Text,
-                                KillProofMinimum = minKp,
-                                KillProofId = kpId,
-                            }
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        ScreenNotification.ShowNotification(ex.Message);
-                    }
-                };
-                var cancelButton = new StandardButton
-                {
-                    Parent = manageButtonPanel,
-                    Width = 100,
-                    Height = 30,
-                    Right = manageButtonPanel.Width - (manageButtonPanel.Width - (100 + 10 + 100)) / 2,
-                    Text = "Close"
-                };
-                cancelButton.Click += async (sender, e) =>
-                {
-                    try
-                    {
-                        await _client.DeleteGroup(group.Id);
-                    }
-                    catch (Exception ex)
-                    {
-                        ScreenNotification.ShowNotification(ex.Message);
-                    }
-                };
-                y += manageButtonPanel.Height + 40;
-
-                var applicationsLabel = new Label
-                {
-                    Parent = createGroupPanel,
-                    Text = "Applications",
-                    Top = y,
-                    AutoSizeHeight = true,
-                    Width = createGroupPanel.Width,
-                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-                };
-                y += applicationsLabel.Height + 10;
-
-                var applicationsList = new FlowPanel
-                {
-                    Parent = createGroupPanel,
-                    Top = y,
-                    Height = createGroupPanel.Height - y,
-                    Width = createGroupPanel.Width,
-                    FlowDirection = ControlFlowDirection.TopToBottom,
-                    ControlPadding = new Vector2(10, 5),
-                };
-                AppendApplicants(applicationsList, _viewModel.GroupApplications);
-                _viewModel.GroupApplicationsChanged += (sender, e) =>
-                {
-                    applicationsList.ClearChildren();
-                    AppendApplicants(applicationsList, _viewModel.GroupApplications);
-                };
+                BuildGroupManagementPanel();
             }
-
-            return createGroupPanel;
         }
 
-        private void AppendApplicants(FlowPanel parent, IEnumerable<Proto.GroupApplication> applications)
+        private void BuildCreateGroupPanel()
         {
-            foreach (var application in applications)
+            var panel = new Panel
             {
-                BuildSingleApplicantPanel(parent, application);
+                Parent = _groupManagementPanel,
+                Width = _groupManagementPanel.Width,
+                Height = _groupManagementPanel.Height,
+                Title = "Create Group",
+            };
+
+            BuildGroupInputs(panel);
+
+            _createButton = new StandardButton
+            {
+                Parent = panel,
+                Text = "Create Group",
+                Width = 120,
+                Height = 30,
+                Top = _requirementsPanel.Bottom + PADDING,
+                Left = (panel.Width - 120) / 2,
+            };
+
+            _createButton.Click += async (s, e) => await CreateGroupAsync();
+        }
+
+        private void BuildGroupManagementPanel()
+        {
+            var panel = new Panel
+            {
+                Parent = _groupManagementPanel,
+                Width = _groupManagementPanel.Width,
+                Height = _groupManagementPanel.Height,
+                Title = "Manage Group",
+            };
+
+            BuildGroupInputs(panel);
+
+            var buttonPanel = new Panel
+            {
+                Parent = panel,
+                Width = panel.Width,
+                Height = 40,
+                Top = _requirementsPanel.Bottom + PADDING,
+            };
+
+            var updateButton = new StandardButton
+            {
+                Parent = buttonPanel,
+                Text = "Update",
+                Width = 100,
+                Left = (buttonPanel.Width - 210) / 2,
+            };
+
+            var closeButton = new StandardButton
+            {
+                Parent = buttonPanel,
+                Text = "Close Group",
+                Width = 100,
+                Left = updateButton.Right + PADDING,
+            };
+
+            updateButton.Click += async (s, e) => await UpdateGroupAsync();
+            closeButton.Click += async (s, e) => await CloseGroupAsync();
+
+            BuildApplicationsList(panel, buttonPanel.Bottom + PADDING);
+        }
+
+        private void BuildGroupInputs(Panel parent)
+        {
+            _descriptionBox = new TextBox
+            {
+                Parent = parent,
+                Width = parent.Width - (PADDING * 2),
+                Height = 30,
+                Left = PADDING,
+                Top = PADDING,
+                PlaceholderText = "Group Description",
+                Text = ViewModel.MyGroup?.Title ?? "",
+            };
+
+            _requirementsPanel = new Panel
+            {
+                Parent = parent,
+                Width = parent.Width - (PADDING * 2),
+                Height = 30,
+                Left = PADDING,
+                Top = _descriptionBox.Bottom + PADDING,
+            };
+
+            new Label
+            {
+                Parent = _requirementsPanel,
+                Text = "Required KP :",
+                AutoSizeWidth = true,
+                Height = 30,
+            };
+
+            _requirementsNumber = new TextBox
+            {
+                Parent = _requirementsPanel,
+                Width = 50,
+                Height = 30,
+                Left = _requirementsPanel.Width - 150,
+                PlaceholderText = "0",
+                Text = ViewModel.MyGroup?.KillProofMinimum.ToString() ?? "",
+            };
+
+            _requirementsDropdown = new Dropdown
+            {
+                Parent = _requirementsPanel,
+                Width = 90,
+                Height = 30,
+                Left = _requirementsPanel.Width - 90,
+            };
+
+            PopulateKillProofDropdown();
+        }
+
+        private void BuildApplicationsList(Panel parent, int topOffset)
+        {
+            var applicationsLabel = new Label
+            {
+                Parent = parent,
+                Text = "Applications",
+                Top = topOffset,
+                Width = parent.Width - (PADDING * 2),
+                Left = PADDING,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+            };
+
+            _applicationsList = new FlowPanel
+            {
+                Parent = parent,
+                Top = applicationsLabel.Bottom + PADDING,
+                Height = parent.Height - applicationsLabel.Bottom - (PADDING * 2),
+                Width = parent.Width - (PADDING * 2),
+                Left = PADDING,
+                FlowDirection = ControlFlowDirection.TopToBottom,
+                ControlPadding = new Vector2(0, 5),
+                ShowBorder = true,
+                CanCollapse = true,
+            };
+
+            foreach (var application in ViewModel.GroupApplications)
+            {
+                CreateApplicationPanel(_applicationsList, application);
             }
         }
 
-        private Panel BuildSingleApplicantPanel(Panel parent, Proto.GroupApplication application)
+        private async Task CreateGroupAsync()
         {
-            var applicantPanel = new Panel
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_descriptionBox.Text))
+                {
+                    ShowError("Please enter a group description");
+                    return;
+                }
+
+                uint.TryParse(_requirementsNumber.Text, out uint minKp);
+                var kpId = ParseKillProofId(_requirementsDropdown.SelectedItem);
+
+                await _lfgClient.CreateGroup(
+                    _descriptionBox.Text.Trim(),
+                    minKp,
+                    kpId
+                );
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to create group: {ex.Message}");
+            }
+        }
+
+        private async Task UpdateGroupAsync()
+        {
+            try
+            {
+                if (ViewModel.MyGroup == null || string.IsNullOrWhiteSpace(_descriptionBox.Text))
+                {
+                    return;
+                }
+
+                uint.TryParse(_requirementsNumber.Text, out uint minKp);
+                var kpId = ParseKillProofId(_requirementsDropdown.SelectedItem);
+
+                var updatedGroup = new Proto.Group
+                {
+                    Id = ViewModel.MyGroup.Id,
+                    Title = _descriptionBox.Text.Trim(),
+                    KillProofMinimum = minKp,
+                    KillProofId = kpId,
+                };
+
+                await _lfgClient.UpdateGroup(updatedGroup);
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to update group: {ex.Message}");
+            }
+        }
+
+        private async Task CloseGroupAsync()
+        {
+            try
+            {
+                if (ViewModel.MyGroup == null)
+                {
+                    return;
+                }
+
+                await _lfgClient.DeleteGroup(ViewModel.MyGroup.Id);
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to close group: {ex.Message}");
+            }
+        }
+
+        private void RegisterEventHandlers()
+        {
+            ViewModel.GroupsChanged += (s, e) => UpdateGroupsList();
+            ViewModel.MyGroupChanged += (s, e) => RefreshManagementPanel();
+            ViewModel.GroupApplicationsChanged += (s, e) => RefreshApplicationsList();
+        }
+
+        private void UpdateGroupsList()
+        {
+            var currentGroups = new HashSet<string>(_groupPanels.Keys);
+            var newGroups = new HashSet<string>(ViewModel.Groups.Select(g => g.Id));
+
+            // Remove panels for groups that no longer exist
+            foreach (var groupId in currentGroups.Except(newGroups))
+            {
+                if (_groupPanels.TryGetValue(groupId, out var panel))
+                {
+                    panel.Dispose();
+                    _groupPanels.Remove(groupId);
+                }
+            }
+
+            // Add or update panels for current groups
+            foreach (var group in ViewModel.Groups)
+            {
+                if (_groupPanels.TryGetValue(group.Id, out var existingPanel))
+                {
+                    UpdateGroupPanel(existingPanel, group);
+                }
+                else
+                {
+                    AddGroupPanel(group);
+                }
+            }
+
+            ApplyFilters();
+        }
+
+        private void RefreshApplicationsList()
+        {
+            if (ViewModel.MyGroup == null)
+            {
+                return;
+            }
+
+            var currentApplications = new HashSet<string>(_applicationPanels.Keys);
+            var newApplications = new HashSet<string>(ViewModel.GroupApplications.Select(a => a.Id));
+
+            foreach (var applicationId in currentApplications.Except(newApplications))
+            {
+                if (_applicationPanels.TryGetValue(applicationId, out var panel))
+                {
+                    panel.Dispose();
+                    _applicationPanels.Remove(applicationId);
+                }
+            }
+
+            foreach (var application in ViewModel.GroupApplications)
+            {
+                if (!_applicationPanels.ContainsKey(application.Id))
+                {
+                    var panel = CreateApplicationPanel(_applicationsList, application);
+                    _applicationPanels[application.Id] = panel;
+                }
+            }
+        }
+
+        private void ApplyFilters()
+        {
+            var searchText = _searchBox.Text.Trim().ToLower();
+            var contentType = _contentTypeDropdown.SelectedItem;
+
+            foreach (var panel in _groupPanels.Values)
+            {
+                var group = panel.Group;
+                var visible = true;
+
+                if (!string.IsNullOrEmpty(searchText))
+                {
+                    visible = group.Title.ToLower().Contains(searchText);
+                }
+
+                if (visible && contentType != "All")
+                {
+                    // Add content type filtering logic here
+                    // visible = MatchesContentType(group, contentType);
+                }
+
+                panel.Visible = visible;
+            }
+
+            _groupsFlowPanel.RecalculateLayout();
+        }
+
+        private void ShowError(string message)
+        {
+            GameService.Content.PlaySoundEffectByName("error");
+            ScreenNotification.ShowNotification(message, ScreenNotification.NotificationType.Error);
+        }
+
+        private void PopulateContentTypeDropdown()
+        {
+            _contentTypeDropdown.Items.Add("All");
+            _contentTypeDropdown.Items.Add("Fractals");
+            _contentTypeDropdown.Items.Add("Raids");
+            _contentTypeDropdown.Items.Add("Strike Missions");
+            _contentTypeDropdown.Items.Add("Open World");
+            _contentTypeDropdown.SelectedItem = "All";
+        }
+
+        private void PopulateKillProofDropdown()
+        {
+            _requirementsDropdown.Items.Add("");
+            _requirementsDropdown.Items.Add("LI");
+            _requirementsDropdown.Items.Add("UFE");
+            _requirementsDropdown.Items.Add("BSKP");
+            _requirementsDropdown.SelectedItem = FormatKillProofId(
+                ViewModel.MyGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
+            );
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                foreach (var panel in _groupPanels.Values)
+                {
+                    panel.Dispose();
+                }
+                _groupPanels.Clear();
+
+                foreach (var panel in _applicationPanels.Values)
+                {
+                    panel.Dispose();
+                }
+                _applicationPanels.Clear();
+
+                _disposed = true;
+            }
+        }
+
+        // Helper methods for
+        // Helper methods for KillProof handling
+        private static Proto.KillProofId ParseKillProofId(string value) => value switch
+        {
+            "LI" => Proto.KillProofId.KpLi,
+            "UFE" => Proto.KillProofId.KpUfe,
+            "BSKP" => Proto.KillProofId.KpBskp,
+            _ => Proto.KillProofId.KpUnknown
+        };
+
+        private static string FormatKillProofId(Proto.KillProofId id) => id switch
+        {
+            Proto.KillProofId.KpLi => "LI",
+            Proto.KillProofId.KpUfe => "UFE",
+            Proto.KillProofId.KpBskp => "BSKP",
+            _ => ""
+        };
+
+        private static string FormatKillProofRequirement(Proto.Group group)
+        {
+            if (group.KillProofMinimum == 0 || group.KillProofId == Proto.KillProofId.KpUnknown)
+            {
+                return "";
+            }
+            return $"{group.KillProofMinimum} {FormatKillProofId(group.KillProofId)}";
+        }
+
+        // Panel creation and update methods
+        private void AddGroupPanel(Proto.Group group)
+        {
+            var panel = CreateGroupPanel(group);
+            _groupPanels[group.Id] = panel;
+            panel.Parent = _groupsFlowPanel;
+        }
+
+        private GroupPanel CreateGroupPanel(Proto.Group group)
+        {
+            var panel = new GroupPanel(group)
+            {
+                HeightSizingMode = SizingMode.AutoSize,
+                Width = _groupsFlowPanel.Width - 20,
+                ShowBorder = true,
+            };
+
+            var infoPanel = new Panel
+            {
+                Parent = panel,
+                Left = PADDING,
+                Top = 5,
+                Width = panel.Width - 120,
+                HeightSizingMode = SizingMode.AutoSize
+            };
+
+            var titleLabel = new Label
+            {
+                Parent = infoPanel,
+                Text = group.Title,
+                AutoSizeHeight = true,
+                Width = infoPanel.Width,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
+            };
+
+            int height = titleLabel.Height;
+
+            var kpRequirement = FormatKillProofRequirement(group);
+            if (!string.IsNullOrEmpty(kpRequirement))
+            {
+                var requirementsLabel = new Label
+                {
+                    Parent = infoPanel,
+                    Text = kpRequirement,
+                    Top = height,
+                    AutoSizeHeight = true,
+                    Width = infoPanel.Width,
+                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
+                };
+                height += requirementsLabel.Height;
+            }
+
+            infoPanel.Height = height + PADDING;
+
+            var buttonPanel = new Panel
+            {
+                Parent = panel,
+                Left = panel.Width - 110,
+                Width = 100,
+                Height = infoPanel.Height
+            };
+
+            var applyButton = new StandardButton
+            {
+                Parent = buttonPanel,
+                Text = "Apply",
+                Width = 100,
+                Height = 30,
+                Top = (buttonPanel.Height - 30) / 2,
+                Enabled = group.CreatorId != ViewModel.AccountName
+            };
+
+            applyButton.Click += async (s, e) => await ApplyToGroupAsync(group.Id);
+
+            return panel;
+        }
+
+        private void UpdateGroupPanel(Panel panel, Proto.Group group)
+        {
+            var infoPanel = (Panel)panel.Children.First();
+            var titleLabel = (Label)infoPanel.Children.First();
+            titleLabel.Text = group.Title;
+
+            var kpRequirement = FormatKillProofRequirement(group);
+            if (infoPanel.Children.Count > 1)
+            {
+                if (string.IsNullOrEmpty(kpRequirement))
+                {
+                    infoPanel.Children[1].Dispose();
+                }
+                else
+                {
+                    ((Label)infoPanel.Children[1]).Text = kpRequirement;
+                }
+            }
+            else if (!string.IsNullOrEmpty(kpRequirement))
+            {
+                var requirementsLabel = new Label
+                {
+                    Parent = infoPanel,
+                    Text = kpRequirement,
+                    Top = titleLabel.Height,
+                    AutoSizeHeight = true,
+                    Width = infoPanel.Width,
+                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
+                };
+            }
+
+            var buttonPanel = (Panel)panel.Children.Last();
+            var applyButton = (StandardButton)buttonPanel.Children.First();
+            applyButton.Enabled = group.CreatorId != ViewModel.AccountName;
+        }
+
+        private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)
+        {
+            var panel = new ApplicationPanel(application)
             {
                 Parent = parent,
                 Height = 60,
-                Width = parent.Width,
+                Width = parent.Width - PADDING,
                 ShowBorder = true,
             };
-            var applicantInfoPanel = new Panel
+
+            var applicantInfo = new Panel
             {
-                Parent = applicantPanel,
-                Left = 10,
+                Parent = panel,
+                Left = PADDING,
                 Top = 5,
                 HeightSizingMode = SizingMode.AutoSize,
-                Width = applicantPanel.Width - 120,
+                Width = panel.Width - 120
             };
-            var titleLabel = new Label
+
+            var nameLabel = new Label
             {
-                Parent = applicantInfoPanel,
+                Parent = applicantInfo,
                 Text = application.AccountName,
                 AutoSizeHeight = true,
-                Width = applicantInfoPanel.Width,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+                Width = applicantInfo.Width,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
             };
+
             var buttonPanel = new Panel
             {
-                Parent = applicantPanel,
-                Left = applicantPanel.Width - 110,
+                Parent = panel,
+                Left = panel.Width - 110,
                 Top = 5,
                 Width = 100,
-                Height = applicantPanel.Height,
+                Height = panel.Height - 10
             };
-            var acceptButton = new StandardButton
+
+            var inviteButton = new StandardButton
             {
                 Parent = buttonPanel,
+                Text = "Invite",
                 Width = 100,
                 Height = 30,
-                Left = (buttonPanel.Width - 100) / 2,
-                Text = "Invite",
+                Top = (buttonPanel.Height - 30) / 2
             };
-            acceptButton.Click += async (sender, e) =>
+
+            inviteButton.Click += (s, e) =>
             {
                 try
                 {
-                    GameService.GameIntegration.Chat.Send("/sqinvite " + application.AccountName);
+                    GameService.GameIntegration.Chat.Send($"/sqinvite {application.AccountName}");
                 }
                 catch (Exception ex)
                 {
-                    ScreenNotification.ShowNotification(ex.Message);
+                    ShowError($"Failed to invite player: {ex.Message}");
                 }
             };
-            return applicantPanel;
+
+            return panel;
         }
 
-        private Panel BuildGroupDetailPanel(Panel parent, Proto.Group group)
+        private async Task ApplyToGroupAsync(string groupId)
         {
-            var groupDetailPanel = new FlowPanel
+            try
             {
-                Parent = parent,
-                Size = parent.Size,
-                FlowDirection = ControlFlowDirection.TopToBottom,
-                ControlPadding = new Vector2(10, 10),
-                OuterControlPadding = new Vector2(10, 0),
-                Visible = false,
-            };
-            // Display group info
-            var titleLabel = new Label
-            {
-                Parent = groupDetailPanel,
-                Text = group.Title,
-                Size = new Point(groupDetailPanel.Width - 20, 30),
-            };
-
-            var requirementsLabel = new Label
-            {
-                Parent = groupDetailPanel,
-                Text = KpString(group.KillProofId, group.KillProofMinimum),
-                Size = new Point(groupDetailPanel.Width - 20, 30),
-            };
-
-            // Add apply buttons for each role
-            var buttonPanel = new FlowPanel
-            {
-                Parent = groupDetailPanel,
-                Size = new Point(groupDetailPanel.Width - 20, 30),
-                FlowDirection = ControlFlowDirection.LeftToRight
-            };
-            return groupDetailPanel;
-        }
-
-        private static string KpString(Proto.KillProofId id, uint min)
-        {
-            if (min == 0 || id == Proto.KillProofId.KpUnknown) return "";
-            return min + " " + KpIdToString(id);
-        }
-
-        private static string KpIdToString(Proto.KillProofId id)
-        {
-            switch (id)
-            {
-                case Proto.KillProofId.KpUfe:
-                    return "UFE";
-                case Proto.KillProofId.KpBskp:
-                    return "BSKP";
-                case Proto.KillProofId.KpLi:
-                    return "LI";
-                default:
-                    return "";
+                await _lfgClient.CreateGroupApplication(groupId);
+                GameService.Content.PlaySoundEffectByName("notification");
+                ScreenNotification.ShowNotification(
+                    "Application sent successfully"
+                );
             }
-        }
-
-        private static Proto.KillProofId StringToKpId(string id)
-        {
-            switch (id)
+            catch (Exception ex)
             {
-                case "UFE":
-                    return Proto.KillProofId.KpUfe;
-                case "BSKP":
-                    return Proto.KillProofId.KpBskp;
-                case "LI":
-                    return Proto.KillProofId.KpLi;
-                default:
-                    return Proto.KillProofId.KpUnknown;
+                ShowError($"Failed to apply to group: {ex.Message}");
             }
         }
     }
