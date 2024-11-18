@@ -5,6 +5,8 @@ using System.Linq;
 using System;
 using Blish_HUD;
 using System.Threading;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace Gw2Lfg
 {
@@ -18,9 +20,10 @@ namespace Gw2Lfg
         // State containers
         private string _accountName = "";
         private string _apiKey = "";
-        private Proto.Group[] _groups = Array.Empty<Proto.Group>();
-        private Proto.GroupApplication[] _groupApplications = Array.Empty<Proto.GroupApplication>();
+        private Proto.Group[] _groups = [];
+        private Proto.GroupApplication[] _groupApplications = [];
         private Proto.Group? _myGroup;
+        private bool _visible = false;
 
         // Event handlers
         public event EventHandler<PropertyChangedEventArgs>? AccountNameChanged;
@@ -28,11 +31,31 @@ namespace Gw2Lfg
         public event EventHandler<PropertyChangedEventArgs>? GroupsChanged;
         public event EventHandler<PropertyChangedEventArgs>? MyGroupChanged;
         public event EventHandler<PropertyChangedEventArgs>? GroupApplicationsChanged;
+        public event EventHandler<PropertyChangedEventArgs>? VisibleChanged;
 
-        public LfgViewModel()
+        private readonly HttpClient _httpClient;
+        private SimpleGrpcWebClient _grpcClient;
+        private LfgClient _client;
+        private CancellationTokenSource _apiKeyCts = new();
+        private CancellationTokenSource _groupsSubCts = new();
+        private CancellationTokenSource _applicationsSubCts = new();
+
+        public LfgViewModel(HttpClient httpClient)
         {
-            // Capture the UI synchronization context when the ViewModel is created
+            _httpClient = httpClient;
             _synchronizationContext = SynchronizationContext.Current ?? new SynchronizationContext();
+
+            ApiKeyChanged += OnApiKeyChanged;
+            GroupsChanged += OnGroupsChanged;
+        }
+
+        public void Connect(string apiKey)
+        {
+            _apiKeyCts.Cancel();
+            _apiKeyCts.Dispose();
+            _apiKeyCts = new CancellationTokenSource();
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, _apiKeyCts.Token);
+            _client = new LfgClient(_grpcClient);
         }
 
         private void RaisePropertyChanged(string propertyName)
@@ -75,7 +98,7 @@ namespace Gw2Lfg
             set
             {
                 if (value == null) throw new ArgumentNullException(nameof(value));
-                
+
                 bool changed;
                 lock (_stateLock)
                 {
@@ -203,6 +226,31 @@ namespace Gw2Lfg
             }
         }
 
+        public bool Visible
+        {
+            get
+            {
+                lock (_stateLock) return _visible;
+            }
+            set
+            {
+                bool changed;
+                lock (_stateLock)
+                {
+                    changed = _visible != value;
+                    if (changed)
+                    {
+                        _visible = value;
+                    }
+                }
+
+                if (changed)
+                {
+                    RaisePropertyChanged(nameof(Visible));
+                }
+            }
+        }
+
         public void AddGroup(Proto.Group group)
         {
             if (group == null) throw new ArgumentNullException(nameof(group));
@@ -274,7 +322,7 @@ namespace Gw2Lfg
         {
             Proto.Group? newMyGroup;
             bool changed;
-            
+
             lock (_stateLock)
             {
                 newMyGroup = _groups.FirstOrDefault(g => g.CreatorId == _accountName);
@@ -355,6 +403,141 @@ namespace Gw2Lfg
             }
         }
 
+        private async Task RefreshGroupsAndSubscribe()
+        {
+            if (string.IsNullOrEmpty(ApiKey))
+            {
+                return;
+            }
+
+            try
+            {
+                CancellationToken cancellationToken = _groupsSubCts.Token;
+                var initialGroups = await _client.ListGroups(cancellationToken);
+                Groups = initialGroups.Groups.ToArray();
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var update in _client.SubscribeGroups(cancellationToken))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            switch (update.UpdateCase)
+                            {
+                                case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
+                                    AddGroup(update.NewGroup);
+                                    break;
+                                case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
+                                    RemoveGroup(update.RemovedGroupId);
+                                    break;
+                                case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
+                                    UpdateGroup(update.UpdatedGroup);
+                                    break;
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal cancellation, ignore
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Group subscription error");
+                    }
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to initialize groups");
+            }
+        }
+
+        private async Task RefreshApplicationsAndSubscribe()
+        {
+            if (string.IsNullOrEmpty(ApiKey) || MyGroup == null)
+            {
+                return;
+            }
+
+            try
+            {
+                CancellationToken cancellationToken = _applicationsSubCts.Token;
+                var initialApplications = await _client.ListGroupApplications(MyGroup.Id, cancellationToken);
+                GroupApplications = initialApplications.Applications.ToArray();
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var update in _client.SubscribeGroupApplications(MyGroup.Id, cancellationToken))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            switch (update.UpdateCase)
+                            {
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
+                                    AddApplication(update.NewApplication);
+                                    break;
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
+                                    RemoveApplication(update.RemovedApplicationId);
+                                    break;
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
+                                    UpdateApplication(update.UpdatedApplication);
+                                    break;
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal cancellation, ignore
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Application subscription error");
+                    }
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to initialize applications");
+            }
+        }
+
+        private void TrySubscribeGroups()
+        {
+            _groupsSubCts?.Cancel();
+            _groupsSubCts?.Dispose();
+            _groupsSubCts = new CancellationTokenSource();
+            _ = RefreshGroupsAndSubscribe();
+        }
+
+        private void TrySubscribeApplications()
+        {
+            _applicationsSubCts?.Cancel();
+            _applicationsSubCts?.Dispose();
+            _applicationsSubCts = new CancellationTokenSource();
+            _ = RefreshApplicationsAndSubscribe();
+        }
+
+        private void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            Connect(ApiKey);
+            TrySubscribeGroups();
+        }
+
+        private void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
+        {
+            TrySubscribeApplications();
+        }
+
         public void Dispose()
         {
             if (!_disposed)
@@ -368,6 +551,9 @@ namespace Gw2Lfg
                     GroupApplicationsChanged = null;
                     _disposed = true;
                 }
+                _apiKeyCts.Cancel();
+                _groupsSubCts.Cancel();
+                _applicationsSubCts.Cancel();
             }
         }
     }

@@ -30,18 +30,13 @@ namespace Gw2Lfg
         private StandardWindow _lfgWindow;
         private SettingEntry<string> _serverAddressSetting;
         private readonly HttpClient _httpClient = new();
-        private CancellationTokenSource _apiKeyCts = new();
-        private CancellationTokenSource _groupsSubCts = new();
-        private CancellationTokenSource _applicationsSubCts = new();
-        private SimpleGrpcWebClient _grpcClient;
-        private LfgClient _client;
         private LfgView _lfgView;
-        private readonly LfgViewModel _viewModel = new();
+        private readonly LfgViewModel _viewModel;
 
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
         {
-            // ModuleParameters is already assigned by the base class constructor
+            _viewModel = new LfgViewModel(_httpClient);
         }
 
         protected override void DefineSettings(SettingCollection settings)
@@ -92,7 +87,7 @@ namespace Gw2Lfg
                 Parent = GameService.Graphics.SpriteScreen,
                 Title = "Community LFG",
                 // Emblem = ContentsManager.GetTexture("controls/window/156022"),
-                Subtitle = "Example Subtitle",
+                Subtitle = "",
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
@@ -102,26 +97,8 @@ namespace Gw2Lfg
             {
                 _lfgWindow.Subtitle = _viewModel.AccountName;
             };
-            _viewModel.ApiKeyChanged += OnApiKeyChanged;
-            _viewModel.MyGroupChanged += OnMyGroupChanged;
-
-#if DEBUG
-            _viewModel.Groups = [new Proto.Group
-            {
-                Id = "1",
-                Title = "Test Group without requirements"
-            },
-            new Proto.Group{
-                Id = "1",
-                Title = "Test Group",
-                KillProofId = Proto.KillProofId.KpLi,
-                KillProofMinimum = 250
-            }];
-#endif
 
             _lfgView = new LfgView(_httpClient, _viewModel);
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _apiKeyCts.Token);
-            _client = new LfgClient(_grpcClient);
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
 
@@ -133,11 +110,8 @@ namespace Gw2Lfg
         protected override void Unload()
         {
             _moduleIcon?.Dispose();
-            _viewModel.ApiKeyChanged -= OnApiKeyChanged;
             Gw2ApiManager.SubtokenUpdated -= OnSubtokenUpdated;
-            _apiKeyCts.Cancel();
-            _groupsSubCts.Cancel();
-            _applicationsSubCts.Cancel();
+            _viewModel.Dispose();
         }
 
         private async void OnSubtokenUpdated(object sender, EventArgs e)
@@ -146,21 +120,6 @@ namespace Gw2Lfg
                 TrySetAccountName(),
                 TrySetApiKey()
             );
-        }
-
-        private void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
-        {
-            _apiKeyCts?.Cancel();
-            _apiKeyCts = new CancellationTokenSource();
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, _viewModel.ApiKey, _apiKeyCts.Token);
-            _client = new LfgClient(_grpcClient);
-            TrySubscribeGroups();
-        }
-
-        private void OnMyGroupChanged(object sender, PropertyChangedEventArgs e)
-        {
-            _viewModel.GroupApplications = [];
-            TrySubscribeApplications();
         }
 
         private async Task TrySetAccountName()
@@ -196,141 +155,6 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task RefreshGroupsAndSubscribe()
-        {
-            if (string.IsNullOrEmpty(_viewModel.ApiKey))
-            {
-                return;
-            }
-
-            try
-            {
-                // Make a snapshot of the current token.
-                CancellationToken cancellationToken = _groupsSubCts.Token;
-                // First get initial list
-                var initialGroups = await _client.ListGroups(cancellationToken);
-                _viewModel.Groups = initialGroups.Groups.ToArray();
-
-                // Then start subscription for updates
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (var update in _client.SubscribeGroups(cancellationToken))
-                        {
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                break;
-                            }
-
-                            switch (update.UpdateCase)
-                            {
-                                case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
-                                    _viewModel.AddGroup(update.NewGroup);
-                                    break;
-                                case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
-                                    _viewModel.RemoveGroup(update.RemovedGroupId);
-                                    break;
-                                case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
-                                    _viewModel.UpdateGroup(update.UpdatedGroup);
-                                    break;
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Normal cancellation, ignore
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Group subscription error");
-                    }
-                }, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to initialize groups");
-            }
-        }
-
-        private async Task RefreshApplicationsAndSubscribe()
-        {
-            if (string.IsNullOrEmpty(_viewModel.ApiKey) || _viewModel.MyGroup == null)
-            {
-                return;
-            }
-
-            try
-            {
-                // Make a snapshot of the current token.
-                CancellationToken cancellationToken = _applicationsSubCts.Token;
-                // First get initial list
-                var initialApplications = await _client.ListGroupApplications(
-                    _viewModel.MyGroup.Id,
-                    cancellationToken
-                );
-                _viewModel.GroupApplications = initialApplications.Applications.ToArray();
-
-                // Then start subscription for updates
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (var update in _client.SubscribeGroupApplications(
-                            _viewModel.MyGroup.Id,
-                            cancellationToken))
-                        {
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                break;
-                            }
-
-                            switch (update.UpdateCase)
-                            {
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
-                                    _viewModel.AddApplication(update.NewApplication);
-                                    break;
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
-                                    _viewModel.RemoveApplication(update.RemovedApplicationId);
-                                    break;
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
-                                    _viewModel.UpdateApplication(update.UpdatedApplication);
-                                    break;
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Normal cancellation, ignore
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Application subscription error");
-                    }
-                }, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to initialize applications");
-            }
-        }
-
-        // Update TrySubscribeGroups to use the new method
-        private void TrySubscribeGroups()
-        {
-            _groupsSubCts?.Cancel();
-            _groupsSubCts = new CancellationTokenSource();
-            _ = RefreshGroupsAndSubscribe();
-        }
-
-        // Update TrySubscribeApplications to use the new method
-        private void TrySubscribeApplications()
-        {
-            _applicationsSubCts?.Cancel();
-            _applicationsSubCts = new CancellationTokenSource();
-            _ = RefreshApplicationsAndSubscribe();
-        }
-
         private void ModuleIcon_Click(object sender, MouseEventArgs e)
         {
             if (!_lfgWindow.Visible)
@@ -347,30 +171,7 @@ namespace Gw2Lfg
     {
         if (e.PropertyName == "Visible")
         {
-            if (_lfgWindow.Visible)
-            {
-                // Clear existing state before resubscribing
-                _viewModel.Groups = [];
-                _viewModel.GroupApplications = [];
-                
-                // Cancel any existing subscriptions
-                _groupsSubCts?.Cancel();
-                _applicationsSubCts?.Cancel();
-                
-                // Create new cancellation tokens
-                _groupsSubCts = new CancellationTokenSource();
-                _applicationsSubCts = new CancellationTokenSource();
-                
-                // Start new subscriptions
-                await RefreshGroupsAndSubscribe();
-                await RefreshApplicationsAndSubscribe();
-            }
-            else
-            {
-                // Cancel subscriptions when hiding window
-                _groupsSubCts?.Cancel();
-                _applicationsSubCts?.Cancel();
-            }
+            _viewModel.Visible = _lfgWindow.Visible;
         }
     }
     }

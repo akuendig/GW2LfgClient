@@ -10,6 +10,8 @@ using System.Linq;
 using Blish_HUD;
 using System.Net.Http;
 using System.Threading;
+using Blish_HUD.Content;
+using Gw2Sharp.WebApi.V2.Models;
 
 namespace Gw2Lfg
 {
@@ -36,6 +38,64 @@ namespace Gw2Lfg
             ShowBorder = true;
         }
     }
+
+    public class LandingView : Container
+    {
+        private const int PADDING = 10;
+
+        public LandingView Build()
+        {
+            Size = Parent.Size;
+
+            var panel = new Panel
+            {
+                Parent = this,
+                HeightSizingMode = SizingMode.AutoSize,
+                WidthSizingMode = SizingMode.AutoSize,
+            };
+
+            // Icon
+            //var icon = new Image(AsyncTexture2D.FromAssetId(157128)) // Key icon
+            var icon = new Image() // Key icon
+            {
+                Parent = panel,
+                Size = new Point(64, 64),
+            };
+
+            // Title
+            var titleLabel = new Label
+            {
+                Parent = panel,
+                Text = "API Key Required",
+                Top = icon.Bottom + PADDING,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                AutoSizeWidth = true,
+                AutoSizeHeight = true,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size20, ContentService.FontStyle.Regular),
+            };
+
+            // Instructions
+            new Label
+            {
+                Parent = panel,
+                Text = "To use the LFG module, please make sure to be logged in with your character,\n" +
+                      "provide Blish HUD  with an API key with 'account' permissions,\n" +
+                      "and give this addon permissions to your 'account'.\n\n" +
+                      "1. Go to Account Settings in Guild Wars 2\n" +
+                      "2. Generate a new API key with 'account' permissions\n" +
+                      "3. The module will automatically connect once permissions are granted",
+                Top = titleLabel.Bottom + PADDING,
+                AutoSizeWidth = true,
+                AutoSizeHeight = true,
+                WrapText = true,
+                Width = 400,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
+            };
+
+            return this;
+        }
+    }
+
     public class LfgView : View, IDisposable
     {
         private const int PADDING = 10;
@@ -58,19 +118,56 @@ namespace Gw2Lfg
         private Panel? _requirementsPanel;
         private TextBox? _requirementsNumber;
         private Dropdown? _requirementsDropdown;
-        
+        private LoadingSpinner? _loadingSpinner;
+        private LandingView? _landingView;
+        private Panel? _mainContentPanel;
+        private bool _isLoading = false;
+        private bool _hasApiKey = false;
+
         public LfgView(HttpClient httpClient, LfgViewModel viewModel)
         {
             _cancellationTokenSource = new CancellationTokenSource();
             _httpClient = httpClient;
             _viewModel = viewModel;
+            _hasApiKey = !string.IsNullOrEmpty(viewModel.ApiKey);
         }
 
         protected override void Build(Container buildPanel)
         {
-            BuildMainLayout(buildPanel);
+
+            _mainContentPanel = new Panel
+            {
+                Parent = buildPanel,
+                Size = buildPanel.ContentRegion.Size,
+                Visible = false
+            };
+
+            _loadingSpinner = new LoadingSpinner
+            {
+                Parent = buildPanel,
+                Location = new Point(
+                    (buildPanel.ContentRegion.Width - 32) / 2,
+                    (buildPanel.ContentRegion.Height - 32) / 2
+                ),
+                Visible = _isLoading
+            };
+
+            _landingView = new LandingView
+            {
+                Parent = buildPanel,
+                Location = new Point(
+                    (buildPanel.ContentRegion.Width - 400) / 2,
+                    (buildPanel.ContentRegion.Height - 300) / 2
+                ),
+                Size = buildPanel.Size,
+                Visible = !_isLoading && !_hasApiKey
+            }.Build();
+
+            BuildMainLayout(_mainContentPanel);
             ReinitializeClients();
             RegisterEventHandlers();
+
+            UpdateVisibility();
         }
 
         protected override void Unload()
@@ -86,6 +183,25 @@ namespace Gw2Lfg
             _grpcClient = new SimpleGrpcWebClient(
                 _httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
             _lfgClient = new LfgClient(_grpcClient);
+        }
+
+        private void UpdateVisibility()
+        {
+            if (_loadingSpinner != null)
+                _loadingSpinner.Visible = _isLoading;
+
+            if (_landingView != null)
+                _landingView.Visible = !_isLoading && !_hasApiKey;
+
+            if (_mainContentPanel != null)
+                _mainContentPanel.Visible = !_isLoading && _hasApiKey;
+        }
+
+
+        private void SetLoading(bool loading)
+        {
+            _isLoading = loading;
+            UpdateVisibility();
         }
 
         private void BuildMainLayout(Container buildPanel)
@@ -375,6 +491,7 @@ namespace Gw2Lfg
                 uint.TryParse(_requirementsNumber.Text, out uint minKp);
                 var kpId = ParseKillProofId(_requirementsDropdown.SelectedItem);
 
+                SetLoading(true);
                 await _lfgClient.CreateGroup(
                     _descriptionBox.Text.Trim(),
                     minKp,
@@ -384,6 +501,10 @@ namespace Gw2Lfg
             catch (Exception ex)
             {
                 ShowError($"Failed to create group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
             }
         }
 
@@ -407,11 +528,16 @@ namespace Gw2Lfg
                     KillProofId = kpId,
                 };
 
+                SetLoading(true);
                 await _lfgClient.UpdateGroup(updatedGroup);
             }
             catch (Exception ex)
             {
                 ShowError($"Failed to update group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
             }
         }
 
@@ -424,11 +550,16 @@ namespace Gw2Lfg
                     return;
                 }
 
+                SetLoading(true);
                 await _lfgClient.DeleteGroup(_viewModel.MyGroup.Id);
             }
             catch (Exception ex)
             {
                 ShowError($"Failed to close group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
             }
         }
 
@@ -450,7 +581,9 @@ namespace Gw2Lfg
 
         private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            _hasApiKey = !string.IsNullOrEmpty(_viewModel.ApiKey);
             ReinitializeClients();
+            UpdateVisibility();
         }
 
         private void OnGroupsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
