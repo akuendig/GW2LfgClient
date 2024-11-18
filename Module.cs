@@ -196,81 +196,139 @@ namespace Gw2Lfg
             }
         }
 
+        private async Task RefreshGroupsAndSubscribe()
+        {
+            if (string.IsNullOrEmpty(_viewModel.ApiKey))
+            {
+                return;
+            }
+
+            try
+            {
+                // Make a snapshot of the current token.
+                CancellationToken cancellationToken = _groupsSubCts.Token;
+                // First get initial list
+                var initialGroups = await _client.ListGroups(cancellationToken);
+                _viewModel.Groups = initialGroups.Groups.ToArray();
+
+                // Then start subscription for updates
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var update in _client.SubscribeGroups(cancellationToken))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            switch (update.UpdateCase)
+                            {
+                                case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
+                                    _viewModel.AddGroup(update.NewGroup);
+                                    break;
+                                case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
+                                    _viewModel.RemoveGroup(update.RemovedGroupId);
+                                    break;
+                                case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
+                                    _viewModel.UpdateGroup(update.UpdatedGroup);
+                                    break;
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal cancellation, ignore
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Group subscription error");
+                    }
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to initialize groups");
+            }
+        }
+
+        private async Task RefreshApplicationsAndSubscribe()
+        {
+            if (string.IsNullOrEmpty(_viewModel.ApiKey) || _viewModel.MyGroup == null)
+            {
+                return;
+            }
+
+            try
+            {
+                // Make a snapshot of the current token.
+                CancellationToken cancellationToken = _applicationsSubCts.Token;
+                // First get initial list
+                var initialApplications = await _client.ListGroupApplications(
+                    _viewModel.MyGroup.Id,
+                    cancellationToken
+                );
+                _viewModel.GroupApplications = initialApplications.Applications.ToArray();
+
+                // Then start subscription for updates
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var update in _client.SubscribeGroupApplications(
+                            _viewModel.MyGroup.Id,
+                            cancellationToken))
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            switch (update.UpdateCase)
+                            {
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
+                                    _viewModel.AddApplication(update.NewApplication);
+                                    break;
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
+                                    _viewModel.RemoveApplication(update.RemovedApplicationId);
+                                    break;
+                                case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
+                                    _viewModel.UpdateApplication(update.UpdatedApplication);
+                                    break;
+                            }
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Normal cancellation, ignore
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex, "Application subscription error");
+                    }
+                }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to initialize applications");
+            }
+        }
+
+        // Update TrySubscribeGroups to use the new method
         private void TrySubscribeGroups()
         {
             _groupsSubCts?.Cancel();
             _groupsSubCts = new CancellationTokenSource();
-            if (_viewModel.ApiKey == "")
-            {
-                return;
-            }
-            Task.Run(async () =>
-            {
-                try
-                {
-                    _viewModel.Groups = [.. (
-                        await _client.ListGroups(_groupsSubCts.Token)
-                    ).Groups];
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex, "Failed to list groups");
-                }
-                await foreach (var update in _client.SubscribeGroups(_groupsSubCts.Token))
-                {
-                    switch (update.UpdateCase)
-                    {
-                        case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
-                            _viewModel.AddGroup(update.NewGroup);
-                            break;
-                        case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
-                            _viewModel.RemoveGroup(update.RemovedGroupId);
-                            break;
-                        case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
-                            _viewModel.UpdateGroup(update.UpdatedGroup);
-                            break;
-                    }
-                }
-            }, _groupsSubCts.Token);
+            _ = RefreshGroupsAndSubscribe();
         }
 
+        // Update TrySubscribeApplications to use the new method
         private void TrySubscribeApplications()
         {
             _applicationsSubCts?.Cancel();
             _applicationsSubCts = new CancellationTokenSource();
-            if (_viewModel.ApiKey == "")
-            {
-                return;
-            }
-            if (_viewModel.MyGroup == null)
-            {
-                return;
-            }
-            Task.Run(async () =>
-            {
-                _viewModel.GroupApplications = [.. (
-                    await _client.ListGroupApplications(_viewModel.MyGroup.Id, _applicationsSubCts.Token)
-                ).Applications];
-                await foreach (var update in _client.SubscribeGroupApplications(_viewModel.MyGroup.Id, _applicationsSubCts.Token))
-                {
-                    switch (update.UpdateCase)
-                    {
-                        case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
-                            _viewModel.GroupApplications = _viewModel.GroupApplications.Append(update.NewApplication).ToArray();
-                            break;
-                        case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
-                            //_viewModel.GroupApplications = _viewModel.GroupApplications.Where(
-                            //    g => g.Id != update.RemovedApplicationId
-                            //).ToArray();
-                            break;
-                        case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
-                            //_viewModel.GroupApplications = _viewModel.GroupApplications.Select(
-                            //    g => g.Id == update.UpdatedApplication.Id ? update.UpdatedApplication : g
-                            //).ToArray();
-                            break;
-                    }
-                }
-            }, _applicationsSubCts.Token);
+            _ = RefreshApplicationsAndSubscribe();
         }
 
         private void ModuleIcon_Click(object sender, MouseEventArgs e)
@@ -285,21 +343,35 @@ namespace Gw2Lfg
             }
         }
 
-        private void LfgWindow_PropertyChanged(object sender, PropertyChangedEventArgs e)
+    private async void LfgWindow_PropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == "Visible")
         {
-            if (e.PropertyName == "Visible")
+            if (_lfgWindow.Visible)
             {
-                if (_lfgWindow.Visible)
-                {
-                    TrySubscribeGroups();
-                    TrySubscribeApplications();
-                }
-                else
-                {
-                    _groupsSubCts?.Cancel();
-                    _applicationsSubCts?.Cancel();
-                }
+                // Clear existing state before resubscribing
+                _viewModel.Groups = [];
+                _viewModel.GroupApplications = [];
+                
+                // Cancel any existing subscriptions
+                _groupsSubCts?.Cancel();
+                _applicationsSubCts?.Cancel();
+                
+                // Create new cancellation tokens
+                _groupsSubCts = new CancellationTokenSource();
+                _applicationsSubCts = new CancellationTokenSource();
+                
+                // Start new subscriptions
+                await RefreshGroupsAndSubscribe();
+                await RefreshApplicationsAndSubscribe();
+            }
+            else
+            {
+                // Cancel subscriptions when hiding window
+                _groupsSubCts?.Cancel();
+                _applicationsSubCts?.Cancel();
             }
         }
+    }
     }
 }

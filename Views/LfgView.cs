@@ -47,7 +47,6 @@ namespace Gw2Lfg
         private readonly Dictionary<string, GroupPanel> _groupPanels = [];
         private readonly Dictionary<string, ApplicationPanel> _applicationPanels = [];
         private readonly LfgViewModel _viewModel;
-        private LfgViewModel ViewModel { get => _viewModel; }
 
         private FlowPanel? _groupsFlowPanel;
         private FlowPanel? _applicationsList;
@@ -65,14 +64,19 @@ namespace Gw2Lfg
             _cancellationTokenSource = new CancellationTokenSource();
             _httpClient = httpClient;
             _viewModel = viewModel;
-
-            ReinitializeClients();
-            _viewModel.ApiKeyChanged += ApiKeyChanged;
         }
 
-        private void ApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        protected override void Build(Container buildPanel)
         {
+            BuildMainLayout(buildPanel);
             ReinitializeClients();
+            RegisterEventHandlers();
+        }
+
+        protected override void Unload()
+        {
+            UnregisterEventHandlers();
+            base.Unload();
         }
 
         private void ReinitializeClients()
@@ -82,12 +86,6 @@ namespace Gw2Lfg
             _grpcClient = new SimpleGrpcWebClient(
                 _httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
             _lfgClient = new LfgClient(_grpcClient);
-        }
-
-        protected override void Build(Container buildPanel)
-        {
-            BuildMainLayout(buildPanel);
-            RegisterEventHandlers();
         }
 
         private void BuildMainLayout(Container buildPanel)
@@ -184,9 +182,9 @@ namespace Gw2Lfg
                 FlowDirection = ControlFlowDirection.TopToBottom,
                 ControlPadding = new Vector2(0, 5),
                 ShowBorder = true,
-                CanCollapse = true,
                 HeightSizingMode = SizingMode.Fill,
             };
+            _groupPanels.Clear();
         }
 
         private void BuildManagementPanel(Panel parent)
@@ -194,7 +192,7 @@ namespace Gw2Lfg
             _groupManagementPanel = new Panel
             {
                 Parent = parent,
-                Width = parent.Width - (PADDING * 2),
+                Width = parent.Width - PADDING,
                 Height = parent.Height - (PADDING * 2),
             };
 
@@ -205,7 +203,7 @@ namespace Gw2Lfg
         {
             _groupManagementPanel.ClearChildren();
 
-            if (ViewModel.MyGroup == null)
+            if (_viewModel.MyGroup == null)
             {
                 BuildCreateGroupPanel();
             }
@@ -292,7 +290,7 @@ namespace Gw2Lfg
                 Left = PADDING,
                 Top = PADDING,
                 PlaceholderText = "Group Description",
-                Text = ViewModel.MyGroup?.Title ?? "",
+                Text = _viewModel.MyGroup?.Title ?? "",
             };
 
             _requirementsPanel = new Panel
@@ -319,7 +317,7 @@ namespace Gw2Lfg
                 Height = 30,
                 Left = _requirementsPanel.Width - 150,
                 PlaceholderText = "0",
-                Text = ViewModel.MyGroup?.KillProofMinimum.ToString() ?? "",
+                Text = _viewModel.MyGroup?.KillProofMinimum.ToString() ?? "",
             };
 
             _requirementsDropdown = new Dropdown
@@ -355,10 +353,10 @@ namespace Gw2Lfg
                 FlowDirection = ControlFlowDirection.TopToBottom,
                 ControlPadding = new Vector2(0, 5),
                 ShowBorder = true,
-                CanCollapse = true,
             };
+            _applicationPanels.Clear();
 
-            foreach (var application in ViewModel.GroupApplications)
+            foreach (var application in _viewModel.GroupApplications)
             {
                 CreateApplicationPanel(_applicationsList, application);
             }
@@ -393,7 +391,7 @@ namespace Gw2Lfg
         {
             try
             {
-                if (ViewModel.MyGroup == null || string.IsNullOrWhiteSpace(_descriptionBox.Text))
+                if (_viewModel.MyGroup == null || string.IsNullOrWhiteSpace(_descriptionBox.Text))
                 {
                     return;
                 }
@@ -403,7 +401,7 @@ namespace Gw2Lfg
 
                 var updatedGroup = new Proto.Group
                 {
-                    Id = ViewModel.MyGroup.Id,
+                    Id = _viewModel.MyGroup.Id,
                     Title = _descriptionBox.Text.Trim(),
                     KillProofMinimum = minKp,
                     KillProofId = kpId,
@@ -421,12 +419,12 @@ namespace Gw2Lfg
         {
             try
             {
-                if (ViewModel.MyGroup == null)
+                if (_viewModel.MyGroup == null)
                 {
                     return;
                 }
 
-                await _lfgClient.DeleteGroup(ViewModel.MyGroup.Id);
+                await _lfgClient.DeleteGroup(_viewModel.MyGroup.Id);
             }
             catch (Exception ex)
             {
@@ -436,15 +434,45 @@ namespace Gw2Lfg
 
         private void RegisterEventHandlers()
         {
-            ViewModel.GroupsChanged += (s, e) => UpdateGroupsList();
-            ViewModel.MyGroupChanged += (s, e) => RefreshManagementPanel();
-            ViewModel.GroupApplicationsChanged += (s, e) => RefreshApplicationsList();
+            _viewModel.ApiKeyChanged += OnApiKeyChanged;
+            _viewModel.GroupsChanged += OnGroupsChanged;
+            _viewModel.MyGroupChanged += OnMyGroupChanged;
+            _viewModel.GroupApplicationsChanged += OnGroupApplicationsChanged;
+        }
+
+        private void UnregisterEventHandlers()
+        {
+            _viewModel.ApiKeyChanged -= OnApiKeyChanged;
+            _viewModel.GroupsChanged -= OnGroupsChanged;
+            _viewModel.MyGroupChanged -= OnMyGroupChanged;
+            _viewModel.GroupApplicationsChanged -= OnGroupApplicationsChanged;
+        }
+
+        private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            ReinitializeClients();
+        }
+
+        private void OnGroupsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            UpdateGroupsList();
+        }
+
+        private void OnMyGroupChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            RefreshManagementPanel();
+        }
+
+        private void OnGroupApplicationsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            UpdateGroupsList(); // For the Apply button
+            RefreshApplicationsList();
         }
 
         private void UpdateGroupsList()
         {
             var currentGroups = new HashSet<string>(_groupPanels.Keys);
-            var newGroups = new HashSet<string>(ViewModel.Groups.Select(g => g.Id));
+            var newGroups = new HashSet<string>(_viewModel.Groups.Select(g => g.Id));
 
             // Remove panels for groups that no longer exist
             foreach (var groupId in currentGroups.Except(newGroups))
@@ -457,7 +485,7 @@ namespace Gw2Lfg
             }
 
             // Add or update panels for current groups
-            foreach (var group in ViewModel.Groups)
+            foreach (var group in _viewModel.Groups)
             {
                 if (_groupPanels.TryGetValue(group.Id, out var existingPanel))
                 {
@@ -474,13 +502,13 @@ namespace Gw2Lfg
 
         private void RefreshApplicationsList()
         {
-            if (ViewModel.MyGroup == null)
+            if (_viewModel.MyGroup == null)
             {
                 return;
             }
 
             var currentApplications = new HashSet<string>(_applicationPanels.Keys);
-            var newApplications = new HashSet<string>(ViewModel.GroupApplications.Select(a => a.Id));
+            var newApplications = new HashSet<string>(_viewModel.GroupApplications.Select(a => a.Id));
 
             foreach (var applicationId in currentApplications.Except(newApplications))
             {
@@ -491,7 +519,7 @@ namespace Gw2Lfg
                 }
             }
 
-            foreach (var application in ViewModel.GroupApplications)
+            foreach (var application in _viewModel.GroupApplications)
             {
                 if (!_applicationPanels.ContainsKey(application.Id))
                 {
@@ -551,7 +579,7 @@ namespace Gw2Lfg
             _requirementsDropdown.Items.Add("UFE");
             _requirementsDropdown.Items.Add("BSKP");
             _requirementsDropdown.SelectedItem = FormatKillProofId(
-                ViewModel.MyGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
+                _viewModel.MyGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
             );
         }
 
@@ -671,7 +699,7 @@ namespace Gw2Lfg
                 Width = 100,
                 Height = 30,
                 Top = (buttonPanel.Height - 30) / 2,
-                Enabled = group.CreatorId != ViewModel.AccountName
+                Enabled = group.CreatorId != _viewModel.AccountName
             };
 
             applyButton.Click += async (s, e) => await ApplyToGroupAsync(group.Id);
@@ -679,8 +707,9 @@ namespace Gw2Lfg
             return panel;
         }
 
-        private void UpdateGroupPanel(Panel panel, Proto.Group group)
+        private void UpdateGroupPanel(GroupPanel panel, Proto.Group group)
         {
+            panel.Group = group;
             var infoPanel = (Panel)panel.Children.First();
             var titleLabel = (Label)infoPanel.Children.First();
             titleLabel.Text = group.Title;
@@ -712,7 +741,7 @@ namespace Gw2Lfg
 
             var buttonPanel = (Panel)panel.Children.Last();
             var applyButton = (StandardButton)buttonPanel.Children.First();
-            applyButton.Enabled = group.CreatorId != ViewModel.AccountName;
+            applyButton.Enabled = group.CreatorId != _viewModel.AccountName;
         }
 
         private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)

@@ -1,10 +1,10 @@
 #nullable enable
 
 using System.ComponentModel;
-using System.Collections.Generic;
 using System.Linq;
 using System;
 using Blish_HUD;
+using System.Threading;
 
 namespace Gw2Lfg
 {
@@ -12,6 +12,7 @@ namespace Gw2Lfg
     {
         private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
         private readonly object _stateLock = new();
+        private readonly SynchronizationContext _synchronizationContext;
         private bool _disposed;
 
         // State containers
@@ -21,12 +22,49 @@ namespace Gw2Lfg
         private Proto.GroupApplication[] _groupApplications = Array.Empty<Proto.GroupApplication>();
         private Proto.Group? _myGroup;
 
-        // Event handlers with thread safety
+        // Event handlers
         public event EventHandler<PropertyChangedEventArgs>? AccountNameChanged;
         public event EventHandler<PropertyChangedEventArgs>? ApiKeyChanged;
         public event EventHandler<PropertyChangedEventArgs>? GroupsChanged;
         public event EventHandler<PropertyChangedEventArgs>? MyGroupChanged;
         public event EventHandler<PropertyChangedEventArgs>? GroupApplicationsChanged;
+
+        public LfgViewModel()
+        {
+            // Capture the UI synchronization context when the ViewModel is created
+            _synchronizationContext = SynchronizationContext.Current ?? new SynchronizationContext();
+        }
+
+        private void RaisePropertyChanged(string propertyName)
+        {
+            if (_disposed) return;
+
+            // Raise the event on the UI thread
+            _synchronizationContext.Post(_ =>
+            {
+                if (!_disposed)
+                {
+                    switch (propertyName)
+                    {
+                        case nameof(AccountName):
+                            AccountNameChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                            break;
+                        case nameof(ApiKey):
+                            ApiKeyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                            break;
+                        case nameof(Groups):
+                            GroupsChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                            break;
+                        case nameof(MyGroup):
+                            MyGroupChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                            break;
+                        case nameof(GroupApplications):
+                            GroupApplicationsChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+                            break;
+                    }
+                }
+            }, null);
+        }
 
         public string AccountName
         {
@@ -36,16 +74,22 @@ namespace Gw2Lfg
             }
             set
             {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+                
                 bool changed;
                 lock (_stateLock)
                 {
                     changed = _accountName != value;
-                    if (changed) _accountName = value;
+                    if (changed)
+                    {
+                        _accountName = value;
+                    }
                 }
+
                 if (changed)
                 {
-                    AccountNameChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccountName)));
-                    UpdateMyGroup(); // Recalculate MyGroup when account name changes
+                    RaisePropertyChanged(nameof(AccountName));
+                    UpdateMyGroup(); // This will raise its own event if needed
                 }
             }
         }
@@ -58,15 +102,21 @@ namespace Gw2Lfg
             }
             set
             {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+
                 bool changed;
                 lock (_stateLock)
                 {
                     changed = _apiKey != value;
-                    if (changed) _apiKey = value;
+                    if (changed)
+                    {
+                        _apiKey = value;
+                    }
                 }
+
                 if (changed)
                 {
-                    ApiKeyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApiKey)));
+                    RaisePropertyChanged(nameof(ApiKey));
                 }
             }
         }
@@ -75,24 +125,27 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _groups.ToArray();
+                lock (_stateLock) return [.. _groups];
             }
             set
             {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+
                 bool changed;
                 lock (_stateLock)
                 {
-                    var newGroups = value ?? Array.Empty<Proto.Group>();
+                    var newGroups = value.ToArray();
                     changed = !_groups.SequenceEqual(newGroups);
                     if (changed)
                     {
-                        _groups = newGroups.ToArray();
+                        _groups = newGroups;
                     }
                 }
+
                 if (changed)
                 {
-                    GroupsChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Groups)));
-                    UpdateMyGroup(); // Recalculate MyGroup when groups change
+                    RaisePropertyChanged(nameof(Groups));
+                    UpdateMyGroup(); // This will raise its own event if needed
                 }
             }
         }
@@ -109,11 +162,15 @@ namespace Gw2Lfg
                 lock (_stateLock)
                 {
                     changed = !Equals(_myGroup?.Id, value?.Id);
-                    if (changed) _myGroup = value;
+                    if (changed)
+                    {
+                        _myGroup = value;
+                    }
                 }
+
                 if (changed)
                 {
-                    MyGroupChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(MyGroup)));
+                    RaisePropertyChanged(nameof(MyGroup));
                 }
             }
         }
@@ -122,92 +179,179 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _groupApplications.ToArray();
+                lock (_stateLock) return [.. _groupApplications];
             }
             set
             {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+
                 bool changed;
                 lock (_stateLock)
                 {
-                    var newApps = value ?? Array.Empty<Proto.GroupApplication>();
+                    var newApps = value.ToArray();
                     changed = !_groupApplications.SequenceEqual(newApps);
                     if (changed)
                     {
-                        _groupApplications = newApps.ToArray();
+                        _groupApplications = newApps;
                     }
                 }
+
                 if (changed)
                 {
-                    GroupApplicationsChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GroupApplications)));
+                    RaisePropertyChanged(nameof(GroupApplications));
                 }
-            }
-        }
-
-        // Methods for atomic state updates
-        public void UpdateGroup(Proto.Group updatedGroup)
-        {
-            lock (_stateLock)
-            {
-                var index = Array.FindIndex(_groups, g => g.Id == updatedGroup.Id);
-                if (index != -1)
-                {
-                    var newGroups = _groups.ToArray();
-                    newGroups[index] = updatedGroup;
-                    Groups = newGroups;
-                }
-            }
-        }
-
-        public void RemoveGroup(string groupId)
-        {
-            lock (_stateLock)
-            {
-                Groups = _groups.Where(g => g.Id != groupId).ToArray();
             }
         }
 
         public void AddGroup(Proto.Group group)
         {
+            if (group == null) throw new ArgumentNullException(nameof(group));
+
+            bool changed;
             lock (_stateLock)
             {
-                if (!_groups.Any(g => g.Id == group.Id))
+                changed = !_groups.Any(g => g.Id == group.Id);
+                if (changed)
                 {
-                    Groups = _groups.Append(group).ToArray();
+                    _groups = [.. _groups, group];
                 }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(Groups));
+                UpdateMyGroup();
             }
         }
 
-        public void UpdateApplication(Proto.GroupApplication application)
+        public void UpdateGroup(Proto.Group updatedGroup)
         {
+            if (updatedGroup == null) throw new ArgumentNullException(nameof(updatedGroup));
+
+            bool changed;
             lock (_stateLock)
             {
-                var index = Array.FindIndex(_groupApplications, a => a.Id == application.Id);
-                if (index != -1)
+                var index = Array.FindIndex(_groups, g => g.Id == updatedGroup.Id);
+                changed = index != -1 && !_groups[index].Equals(updatedGroup);
+                if (changed)
                 {
-                    var newApps = _groupApplications.ToArray();
-                    newApps[index] = application;
-                    GroupApplications = newApps;
+                    var newGroups = _groups.ToArray();
+                    newGroups[index] = updatedGroup;
+                    _groups = newGroups;
                 }
-                else
-                {
-                    GroupApplications = _groupApplications.Append(application).ToArray();
-                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(Groups));
+                UpdateMyGroup();
             }
         }
 
-        public void RemoveApplication(string applicationId)
+        public void RemoveGroup(string groupId)
         {
+            if (string.IsNullOrEmpty(groupId)) throw new ArgumentException("Group ID cannot be null or empty", nameof(groupId));
+
+            bool changed;
             lock (_stateLock)
             {
-                GroupApplications = _groupApplications.Where(a => a.Id != applicationId).ToArray();
+                var newGroups = _groups.Where(g => g.Id != groupId).ToArray();
+                changed = newGroups.Length != _groups.Length;
+                if (changed)
+                {
+                    _groups = newGroups;
+                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(Groups));
+                UpdateMyGroup();
             }
         }
 
         private void UpdateMyGroup()
         {
+            Proto.Group? newMyGroup;
+            bool changed;
+            
             lock (_stateLock)
             {
-                MyGroup = _groups.FirstOrDefault(g => g.CreatorId == _accountName);
+                newMyGroup = _groups.FirstOrDefault(g => g.CreatorId == _accountName);
+                changed = !Equals(_myGroup?.Id, newMyGroup?.Id);
+                if (changed)
+                {
+                    _myGroup = newMyGroup;
+                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(MyGroup));
+            }
+        }
+
+        public void UpdateApplication(Proto.GroupApplication updatedApplication)
+        {
+            if (updatedApplication == null) throw new ArgumentNullException(nameof(updatedApplication));
+
+            bool changed;
+            lock (_stateLock)
+            {
+                var index = Array.FindIndex(_groupApplications, a => a.Id == updatedApplication.Id);
+                changed = index != -1 && !_groupApplications[index].Equals(updatedApplication);
+                if (changed)
+                {
+                    var newApplications = _groupApplications.ToArray();
+                    newApplications[index] = updatedApplication;
+                    _groupApplications = newApplications;
+                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(GroupApplications));
+            }
+        }
+
+        public void RemoveApplication(string applicationId)
+        {
+            if (string.IsNullOrEmpty(applicationId)) throw new ArgumentException("Application ID cannot be null or empty", nameof(applicationId));
+
+            bool changed;
+            lock (_stateLock)
+            {
+                var newApplications = _groupApplications.Where(a => a.Id != applicationId).ToArray();
+                changed = newApplications.Length != _groupApplications.Length;
+                if (changed)
+                {
+                    _groupApplications = newApplications;
+                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(GroupApplications));
+            }
+        }
+
+        public void AddApplication(Proto.GroupApplication newApplication)
+        {
+            if (newApplication == null) throw new ArgumentNullException(nameof(newApplication));
+
+            bool changed;
+            lock (_stateLock)
+            {
+                changed = !_groupApplications.Any(a => a.Id == newApplication.Id);
+                if (changed)
+                {
+                    _groupApplications = [.. _groupApplications, newApplication];
+                }
+            }
+
+            if (changed)
+            {
+                RaisePropertyChanged(nameof(GroupApplications));
             }
         }
 
@@ -215,13 +359,15 @@ namespace Gw2Lfg
         {
             if (!_disposed)
             {
-                // Clear all event handlers
-                AccountNameChanged = null;
-                ApiKeyChanged = null;
-                GroupsChanged = null;
-                MyGroupChanged = null;
-                GroupApplicationsChanged = null;
-                _disposed = true;
+                lock (_stateLock)
+                {
+                    AccountNameChanged = null;
+                    ApiKeyChanged = null;
+                    GroupsChanged = null;
+                    MyGroupChanged = null;
+                    GroupApplicationsChanged = null;
+                    _disposed = true;
+                }
             }
         }
     }
