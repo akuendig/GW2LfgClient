@@ -62,31 +62,18 @@ namespace Gw2Lfg
         {
             if (_disposed) return;
 
-            // Raise the event on the UI thread
-            _synchronizationContext.Post(_ =>
+            var handler = propertyName switch
             {
-                if (!_disposed)
-                {
-                    switch (propertyName)
-                    {
-                        case nameof(AccountName):
-                            AccountNameChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                            break;
-                        case nameof(ApiKey):
-                            ApiKeyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                            break;
-                        case nameof(Groups):
-                            GroupsChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                            break;
-                        case nameof(MyGroup):
-                            MyGroupChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                            break;
-                        case nameof(GroupApplications):
-                            GroupApplicationsChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-                            break;
-                    }
-                }
-            }, null);
+                nameof(AccountName) => AccountNameChanged,
+                nameof(ApiKey) => ApiKeyChanged,
+                nameof(Groups) => GroupsChanged,
+                nameof(MyGroup) => MyGroupChanged,
+                nameof(GroupApplications) => GroupApplicationsChanged,
+                nameof(Visible) => VisibleChanged,
+                _ => null
+            };
+
+            handler?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
         public string AccountName
@@ -202,7 +189,7 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return [.. _groupApplications];
+                lock (_stateLock) return _groupApplications.ToArray();
             }
             set
             {
@@ -211,11 +198,11 @@ namespace Gw2Lfg
                 bool changed;
                 lock (_stateLock)
                 {
-                    var newApps = value.ToArray();
-                    changed = !_groupApplications.SequenceEqual(newApps);
+                    var newApplications = value.ToArray();
+                    changed = !_groupApplications.SequenceEqual(newApplications);
                     if (changed)
                     {
-                        _groupApplications = newApps;
+                        _groupApplications = newApplications;
                     }
                 }
 

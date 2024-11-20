@@ -221,15 +221,10 @@ namespace Gw2Lfg
             httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GrpcWebFormat);
 
-            var completionOption = stream
-                ? HttpCompletionOption.ResponseHeadersRead
-                : HttpCompletionOption.ResponseContentRead;
-
             var response = await _httpClient.SendAsync(
                 httpRequest,
-                completionOption,
-                CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken, _cancellationToken).Token
+                stream ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationToken).Token
             );
 
             response.EnsureSuccessStatusCode();

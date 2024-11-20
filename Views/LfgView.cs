@@ -718,22 +718,22 @@ namespace Gw2Lfg
 
         public void Dispose()
         {
-            if (!_disposed)
+            if (_disposed) return;
+            _disposed = true;
+
+            foreach (var panel in _groupPanels.Values)
             {
-                foreach (var panel in _groupPanels.Values)
-                {
-                    panel.Dispose();
-                }
-                _groupPanels.Clear();
-
-                foreach (var panel in _applicationPanels.Values)
-                {
-                    panel.Dispose();
-                }
-                _applicationPanels.Clear();
-
-                _disposed = true;
+                panel.Dispose();
             }
+            _groupPanels.Clear();
+
+            foreach (var panel in _applicationPanels.Values)
+            {
+                panel.Dispose();
+            }
+            _applicationPanels.Clear();
+
+            // Dispose other managed resources if necessary
         }
 
         // Helper methods for
@@ -943,10 +943,6 @@ namespace Gw2Lfg
             try
             {
                 await _lfgClient.CreateGroupApplication(groupId);
-                GameService.Content.PlaySoundEffectByName("notification");
-                ScreenNotification.ShowNotification(
-                    "Application sent successfully"
-                );
             }
             catch (Exception ex)
             {

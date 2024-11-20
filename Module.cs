@@ -75,7 +75,7 @@ namespace Gw2Lfg
                 // ContentsManager.GetTexture("icons/group.png"),
                 AsyncTexture2D.FromAssetId(156409),
                 "GW2 LFG");
-            _moduleIcon.Click += ModuleIcon_Click;
+            _moduleIcon.Click += (s, e) => ToggleWindow();
 
             // Note that the windowRegion and contentRegion are matched to the size of the background image.
             _lfgWindow = new StandardWindow(
@@ -91,7 +91,13 @@ namespace Gw2Lfg
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
-            _lfgWindow.PropertyChanged += LfgWindow_PropertyChanged;
+            _lfgWindow.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(_lfgWindow.Visible))
+                {
+                    _viewModel.Visible = _lfgWindow.Visible;
+                }
+            };
 
             _viewModel.AccountNameChanged += (sender, args) =>
             {
@@ -155,7 +161,7 @@ namespace Gw2Lfg
             }
         }
 
-        private void ModuleIcon_Click(object sender, MouseEventArgs e)
+        private void ToggleWindow()
         {
             if (!_lfgWindow.Visible)
             {
@@ -166,13 +172,5 @@ namespace Gw2Lfg
                 _lfgWindow.Hide();
             }
         }
-
-    private async void LfgWindow_PropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == "Visible")
-        {
-            _viewModel.Visible = _lfgWindow.Visible;
-        }
-    }
     }
 }
