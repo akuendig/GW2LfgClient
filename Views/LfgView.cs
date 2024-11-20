@@ -155,10 +155,7 @@ namespace Gw2Lfg
             _landingView = new LandingView
             {
                 Parent = buildPanel,
-                Location = new Point(
-                    (buildPanel.ContentRegion.Width - 400) / 2,
-                    (buildPanel.ContentRegion.Height - 300) / 2
-                ),
+                Location = new Point(100, 100),
                 Size = buildPanel.Size,
                 Visible = !_isLoading && !_hasApiKey
             }.Build();
@@ -569,6 +566,7 @@ namespace Gw2Lfg
             _viewModel.GroupsChanged += OnGroupsChanged;
             _viewModel.MyGroupChanged += OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged += OnGroupApplicationsChanged;
+            _viewModel.VisibleChanged += OnVisibleChanged;
         }
 
         private void UnregisterEventHandlers()
@@ -577,6 +575,7 @@ namespace Gw2Lfg
             _viewModel.GroupsChanged -= OnGroupsChanged;
             _viewModel.MyGroupChanged -= OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged -= OnGroupApplicationsChanged;
+            _viewModel.VisibleChanged -= OnVisibleChanged;
         }
 
         private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -600,6 +599,14 @@ namespace Gw2Lfg
         {
             UpdateGroupsList(); // For the Apply button
             RefreshApplicationsList();
+        }
+
+        private void OnVisibleChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (_viewModel.Visible)
+            {
+                RefreshApplicationsList();
+            }
         }
 
         private void UpdateGroupsList()

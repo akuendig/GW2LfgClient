@@ -24,6 +24,8 @@ namespace Gw2Lfg
         private Proto.GroupApplication[] _groupApplications = [];
         private Proto.Group? _myGroup;
         private bool _visible = false;
+        private bool _isLoadingGroups = false;
+        private bool _isLoadingApplications = false;
 
         // Event handlers
         public event EventHandler<PropertyChangedEventArgs>? AccountNameChanged;
@@ -32,6 +34,8 @@ namespace Gw2Lfg
         public event EventHandler<PropertyChangedEventArgs>? MyGroupChanged;
         public event EventHandler<PropertyChangedEventArgs>? GroupApplicationsChanged;
         public event EventHandler<PropertyChangedEventArgs>? VisibleChanged;
+        public event EventHandler<PropertyChangedEventArgs>? IsLoadingGroupsChanged;
+        public event EventHandler<PropertyChangedEventArgs>? IsLoadingApplicationsChanged;
 
         private readonly HttpClient _httpClient;
         private SimpleGrpcWebClient _grpcClient;
@@ -70,6 +74,8 @@ namespace Gw2Lfg
                 nameof(MyGroup) => MyGroupChanged,
                 nameof(GroupApplications) => GroupApplicationsChanged,
                 nameof(Visible) => VisibleChanged,
+                nameof(IsLoadingGroups) => IsLoadingGroupsChanged,
+                nameof(IsLoadingApplications) => IsLoadingApplicationsChanged,
                 _ => null
             };
 
@@ -238,6 +244,56 @@ namespace Gw2Lfg
             }
         }
 
+        public bool IsLoadingGroups
+        {
+            get
+            {
+                lock (_stateLock) return _isLoadingGroups;
+            }
+            set
+            {
+                bool changed;
+                lock (_stateLock)
+                {
+                    changed = _isLoadingGroups != value;
+                    if (changed)
+                    {
+                        _isLoadingGroups = value;
+                    }
+                }
+
+                if (changed)
+                {
+                    RaisePropertyChanged(nameof(IsLoadingGroups));
+                }
+            }
+        }
+
+        public bool IsLoadingApplications
+        {
+            get
+            {
+                lock (_stateLock) return _isLoadingApplications;
+            }
+            set
+            {
+                bool changed;
+                lock (_stateLock)
+                {
+                    changed = _isLoadingApplications != value;
+                    if (changed)
+                    {
+                        _isLoadingApplications = value;
+                    }
+                }
+
+                if (changed)
+                {
+                    RaisePropertyChanged(nameof(IsLoadingApplications));
+                }
+            }
+        }
+
         public void AddGroup(Proto.Group group)
         {
             if (group == null) throw new ArgumentNullException(nameof(group));
@@ -400,6 +456,7 @@ namespace Gw2Lfg
             try
             {
                 CancellationToken cancellationToken = _groupsSubCts.Token;
+                IsLoadingGroups = true;
                 var initialGroups = await _client.ListGroups(cancellationToken);
                 Groups = initialGroups.Groups.ToArray();
 
@@ -442,6 +499,7 @@ namespace Gw2Lfg
             {
                 Logger.Error(ex, "Failed to initialize groups");
             }
+            finally { IsLoadingGroups = false; }
         }
 
         private async Task RefreshApplicationsAndSubscribe()
@@ -454,6 +512,7 @@ namespace Gw2Lfg
             try
             {
                 CancellationToken cancellationToken = _applicationsSubCts.Token;
+                IsLoadingApplications = true;
                 var initialApplications = await _client.ListGroupApplications(MyGroup.Id, cancellationToken);
                 GroupApplications = initialApplications.Applications.ToArray();
 
@@ -496,33 +555,35 @@ namespace Gw2Lfg
             {
                 Logger.Error(ex, "Failed to initialize applications");
             }
+            finally { IsLoadingApplications = false; }
         }
 
-        private void TrySubscribeGroups()
+        private async Task TrySubscribeGroups()
         {
             _groupsSubCts?.Cancel();
             _groupsSubCts?.Dispose();
             _groupsSubCts = new CancellationTokenSource();
-            _ = RefreshGroupsAndSubscribe();
+            await RefreshGroupsAndSubscribe();
         }
 
-        private void TrySubscribeApplications()
+        private async Task TrySubscribeApplications()
         {
             _applicationsSubCts?.Cancel();
             _applicationsSubCts?.Dispose();
             _applicationsSubCts = new CancellationTokenSource();
-            _ = RefreshApplicationsAndSubscribe();
+            await RefreshApplicationsAndSubscribe();
         }
 
-        private void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        private async void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
         {
             Connect(ApiKey);
-            TrySubscribeGroups();
+            await TrySubscribeGroups();
+            await TrySubscribeApplications();
         }
 
-        private void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
+        private async void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
         {
-            TrySubscribeApplications();
+            await TrySubscribeApplications();
         }
 
         public void Dispose()
