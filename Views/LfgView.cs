@@ -10,8 +10,6 @@ using System.Linq;
 using Blish_HUD;
 using System.Net.Http;
 using System.Threading;
-using Blish_HUD.Content;
-using Gw2Sharp.WebApi.V2.Models;
 
 namespace Gw2Lfg
 {
@@ -45,7 +43,7 @@ namespace Gw2Lfg
 
         public LandingView Build()
         {
-            Size = Parent.Size;
+            Size = Parent.ContentRegion.Size;
 
             var panel = new Panel
             {
@@ -68,7 +66,6 @@ namespace Gw2Lfg
                 Parent = panel,
                 Text = "API Key Required",
                 Top = icon.Bottom + PADDING,
-                HorizontalAlignment = HorizontalAlignment.Center,
                 AutoSizeWidth = true,
                 AutoSizeHeight = true,
                 Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size20, ContentService.FontStyle.Regular),
@@ -92,6 +89,15 @@ namespace Gw2Lfg
                 Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
             };
 
+            panel.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == "Size")
+                {
+                    panel.Left = (Width - panel.Width) / 2;
+                    panel.Top = 100;
+                };
+            };
+
             return this;
         }
     }
@@ -109,7 +115,9 @@ namespace Gw2Lfg
         private readonly LfgViewModel _viewModel;
 
         private FlowPanel? _groupsFlowPanel;
+        private LoadingSpinner? _groupsLoadingSpinner;
         private FlowPanel? _applicationsList;
+        private LoadingSpinner? _applicationsLoadingSpinner;
         private TextBox? _searchBox;
         private Dropdown? _contentTypeDropdown;
         private Panel? _groupManagementPanel;
@@ -118,7 +126,6 @@ namespace Gw2Lfg
         private Panel? _requirementsPanel;
         private TextBox? _requirementsNumber;
         private Dropdown? _requirementsDropdown;
-        private LoadingSpinner? _loadingSpinner;
         private LandingView? _landingView;
         private Panel? _mainContentPanel;
         private bool _isLoading = false;
@@ -142,20 +149,9 @@ namespace Gw2Lfg
                 Visible = false
             };
 
-            _loadingSpinner = new LoadingSpinner
-            {
-                Parent = buildPanel,
-                Location = new Point(
-                    (buildPanel.ContentRegion.Width - 32) / 2,
-                    (buildPanel.ContentRegion.Height - 32) / 2
-                ),
-                Visible = _isLoading
-            };
-
             _landingView = new LandingView
             {
                 Parent = buildPanel,
-                Location = new Point(100, 100),
                 Size = buildPanel.Size,
                 Visible = !_isLoading && !_hasApiKey
             }.Build();
@@ -184,9 +180,6 @@ namespace Gw2Lfg
 
         private void UpdateVisibility()
         {
-            if (_loadingSpinner != null)
-                _loadingSpinner.Visible = _isLoading;
-
             if (_landingView != null)
                 _landingView.Visible = !_isLoading && !_hasApiKey;
 
@@ -298,6 +291,16 @@ namespace Gw2Lfg
                 HeightSizingMode = SizingMode.Fill,
             };
             _groupPanels.Clear();
+            _groupsLoadingSpinner = new LoadingSpinner
+            {
+                Parent = parent,
+                Location = new Point(
+                    (parent.Width - 64) / 2,
+                    (parent.Height - 64) / 2
+                ),
+                Visible = _viewModel.IsLoadingGroups,
+                ZIndex = _groupsFlowPanel.ZIndex + 1,
+            };
         }
 
         private void BuildManagementPanel(Panel parent)
@@ -314,7 +317,7 @@ namespace Gw2Lfg
 
         private void RefreshManagementPanel()
         {
-            _groupManagementPanel.ClearChildren();
+            _groupManagementPanel!.ClearChildren();
 
             if (_viewModel.MyGroup == null)
             {
@@ -331,7 +334,7 @@ namespace Gw2Lfg
             var panel = new Panel
             {
                 Parent = _groupManagementPanel,
-                Width = _groupManagementPanel.Width,
+                Width = _groupManagementPanel!.Width,
                 Height = _groupManagementPanel.Height,
                 Title = "Create Group",
             };
@@ -344,11 +347,15 @@ namespace Gw2Lfg
                 Text = "Create Group",
                 Width = 120,
                 Height = 30,
-                Top = _requirementsPanel.Bottom + PADDING,
+                Top = _requirementsPanel!.Bottom + PADDING,
                 Left = (panel.Width - 120) / 2,
             };
 
-            _createButton.Click += async (s, e) => await CreateGroupAsync();
+            _createButton.Click += async (s, e) => await CreateGroupAsync(
+                _descriptionBox?.Text ?? "",
+                _requirementsNumber?.Text ?? "",
+                _requirementsDropdown?.SelectedItem ?? ""
+            );
         }
 
         private void BuildGroupManagementPanel()
@@ -356,7 +363,7 @@ namespace Gw2Lfg
             var panel = new Panel
             {
                 Parent = _groupManagementPanel,
-                Width = _groupManagementPanel.Width,
+                Width = _groupManagementPanel!.Width,
                 Height = _groupManagementPanel.Height,
                 Title = "Manage Group",
             };
@@ -368,7 +375,7 @@ namespace Gw2Lfg
                 Parent = panel,
                 Width = panel.Width,
                 Height = 40,
-                Top = _requirementsPanel.Bottom + PADDING,
+                Top = _requirementsPanel!.Bottom + PADDING,
             };
 
             var updateButton = new StandardButton
@@ -387,8 +394,15 @@ namespace Gw2Lfg
                 Left = updateButton.Right + PADDING,
             };
 
-            updateButton.Click += async (s, e) => await UpdateGroupAsync();
-            closeButton.Click += async (s, e) => await CloseGroupAsync();
+            updateButton.Click += async (s, e) => await UpdateGroupAsync(
+                _viewModel?.MyGroup?.Id ?? "",
+                _descriptionBox?.Text ?? "",
+                _requirementsNumber?.Text ?? "",
+                _requirementsDropdown?.SelectedItem ?? ""
+            );
+            closeButton.Click += async (s, e) => await CloseGroupAsync(
+                _viewModel?.MyGroup?.Id ?? ""
+            );
 
             BuildApplicationsList(panel, buttonPanel.Bottom + PADDING);
         }
@@ -468,6 +482,16 @@ namespace Gw2Lfg
                 ShowBorder = true,
             };
             _applicationPanels.Clear();
+            _applicationsLoadingSpinner = new LoadingSpinner
+            {
+                Parent = parent,
+                Location = new Point(
+                    _applicationsList.Left + (_applicationsList.Width - 64) / 2,
+                    _applicationsList.Top + (_applicationsList.Height - 64) / 2
+                ),
+                Visible = _viewModel.IsLoadingApplications,
+                ZIndex = _applicationsList.ZIndex + 1,
+            };
 
             foreach (var application in _viewModel.GroupApplications)
             {
@@ -475,22 +499,22 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task CreateGroupAsync()
+        private async Task CreateGroupAsync(string description, string minKpText, string kpIdText)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(_descriptionBox.Text))
+                if (string.IsNullOrWhiteSpace(description))
                 {
                     ShowError("Please enter a group description");
                     return;
                 }
 
-                uint.TryParse(_requirementsNumber.Text, out uint minKp);
-                var kpId = ParseKillProofId(_requirementsDropdown.SelectedItem);
+                uint.TryParse(minKpText, out uint minKp);
+                var kpId = ParseKillProofId(kpIdText);
 
                 SetLoading(true);
                 await _lfgClient.CreateGroup(
-                    _descriptionBox.Text.Trim(),
+                    description.Trim(),
                     minKp,
                     kpId
                 );
@@ -505,22 +529,22 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task UpdateGroupAsync()
+        private async Task UpdateGroupAsync(string groupId, string description, string minKpText, string kpIdText)
         {
             try
             {
-                if (_viewModel.MyGroup == null || string.IsNullOrWhiteSpace(_descriptionBox.Text))
+                if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(description))
                 {
                     return;
                 }
 
-                uint.TryParse(_requirementsNumber.Text, out uint minKp);
-                var kpId = ParseKillProofId(_requirementsDropdown.SelectedItem);
+                uint.TryParse(minKpText, out uint minKp);
+                var kpId = ParseKillProofId(kpIdText);
 
                 var updatedGroup = new Proto.Group
                 {
-                    Id = _viewModel.MyGroup.Id,
-                    Title = _descriptionBox.Text.Trim(),
+                    Id = groupId,
+                    Title = description.Trim(),
                     KillProofMinimum = minKp,
                     KillProofId = kpId,
                 };
@@ -538,17 +562,17 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task CloseGroupAsync()
+        private async Task CloseGroupAsync(string groupId)
         {
             try
             {
-                if (_viewModel.MyGroup == null)
+                if (string.IsNullOrWhiteSpace(groupId))
                 {
                     return;
                 }
 
                 SetLoading(true);
-                await _lfgClient.DeleteGroup(_viewModel.MyGroup.Id);
+                await _lfgClient.DeleteGroup(groupId);
             }
             catch (Exception ex)
             {
@@ -567,6 +591,8 @@ namespace Gw2Lfg
             _viewModel.MyGroupChanged += OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged += OnGroupApplicationsChanged;
             _viewModel.VisibleChanged += OnVisibleChanged;
+            _viewModel.IsLoadingGroupsChanged += OnIsGroupsLoadingChanged;
+            _viewModel.IsLoadingApplicationsChanged += OnIsApplicationsLoadingChanged;
         }
 
         private void UnregisterEventHandlers()
@@ -576,6 +602,8 @@ namespace Gw2Lfg
             _viewModel.MyGroupChanged -= OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged -= OnGroupApplicationsChanged;
             _viewModel.VisibleChanged -= OnVisibleChanged;
+            _viewModel.IsLoadingGroupsChanged -= OnIsGroupsLoadingChanged;
+            _viewModel.IsLoadingApplicationsChanged -= OnIsApplicationsLoadingChanged;
         }
 
         private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -607,6 +635,18 @@ namespace Gw2Lfg
             {
                 RefreshApplicationsList();
             }
+        }
+
+        private void OnIsGroupsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (_groupsLoadingSpinner == null) return;
+            _groupsLoadingSpinner.Visible = _viewModel.IsLoadingGroups;
+        }
+
+        private void OnIsApplicationsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (_applicationsLoadingSpinner == null) return;
+            _applicationsLoadingSpinner.Visible = _viewModel.IsLoadingApplications;
         }
 
         private void UpdateGroupsList()
@@ -646,6 +686,7 @@ namespace Gw2Lfg
             {
                 return;
             }
+            if (_applicationsList == null) return;
 
             var currentApplications = new HashSet<string>(_applicationPanels.Keys);
             var newApplications = new HashSet<string>(_viewModel.GroupApplications.Select(a => a.Id));
@@ -671,6 +712,7 @@ namespace Gw2Lfg
 
         private void ApplyFilters()
         {
+            if (_searchBox == null || _contentTypeDropdown == null || _groupsFlowPanel == null) return;
             var searchText = _searchBox.Text.Trim().ToLower();
             var contentType = _contentTypeDropdown.SelectedItem;
 
@@ -704,7 +746,7 @@ namespace Gw2Lfg
 
         private void PopulateContentTypeDropdown()
         {
-            _contentTypeDropdown.Items.Add("All");
+            _contentTypeDropdown!.Items.Add("All");
             _contentTypeDropdown.Items.Add("Fractals");
             _contentTypeDropdown.Items.Add("Raids");
             _contentTypeDropdown.Items.Add("Strike Missions");
@@ -714,7 +756,7 @@ namespace Gw2Lfg
 
         private void PopulateKillProofDropdown()
         {
-            _requirementsDropdown.Items.Add("");
+            _requirementsDropdown!.Items.Add("");
             _requirementsDropdown.Items.Add("LI");
             _requirementsDropdown.Items.Add("UFE");
             _requirementsDropdown.Items.Add("BSKP");
@@ -783,7 +825,7 @@ namespace Gw2Lfg
             var panel = new GroupPanel(group)
             {
                 HeightSizingMode = SizingMode.AutoSize,
-                Width = _groupsFlowPanel.Width - 20,
+                Width = _groupsFlowPanel!.Width - 20,
                 ShowBorder = true,
             };
 
