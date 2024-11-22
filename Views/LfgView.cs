@@ -137,6 +137,11 @@ namespace Gw2Lfg
             _httpClient = httpClient;
             _viewModel = viewModel;
             _hasApiKey = !string.IsNullOrEmpty(viewModel.ApiKey);
+
+            if (_hasApiKey)
+            {
+                ReinitializeClients();
+            }
         }
 
         protected override void Build(Container buildPanel)
@@ -890,10 +895,14 @@ namespace Gw2Lfg
                     Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
                 };
             }
+            infoPanel.Height = infoPanel.Children.Sum(c => c.Height) + PADDING;
 
             var buttonPanel = (Panel)panel.Children.Last();
+            buttonPanel.Height = infoPanel.Height;
             var applyButton = buttonPanel.GetChildrenOfType<StandardButton>().First();
+            applyButton.Top = (buttonPanel.Height - 30) / 2;
             var myGroupLabel = buttonPanel.GetChildrenOfType<Label>().First();
+            myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
             var isYourGroup = group.CreatorId == _viewModel.AccountName;
             applyButton.Visible = !isYourGroup;
             myGroupLabel.Visible = isYourGroup;
