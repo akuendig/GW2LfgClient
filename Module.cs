@@ -62,10 +62,8 @@ namespace Gw2Lfg
         {
             // Load any necessary resources
             await base.LoadAsync();
-            await Task.WhenAll(
-                TrySetAccountName(),
-                TrySetApiKey()
-            );
+            await TrySetAccountName();
+            await TrySetApiKey();
         }
 
         protected override void Initialize()
@@ -125,10 +123,8 @@ namespace Gw2Lfg
 
         private async void OnSubtokenUpdated(object sender, EventArgs e)
         {
-            await Task.WhenAll(
-                TrySetAccountName(),
-                TrySetApiKey()
-            );
+            await TrySetAccountName();
+            await TrySetApiKey();
         }
 
         private async Task TrySetAccountName()
