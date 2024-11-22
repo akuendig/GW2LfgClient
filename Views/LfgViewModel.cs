@@ -369,7 +369,7 @@ namespace Gw2Lfg
             lock (_stateLock)
             {
                 newMyGroup = _groups.FirstOrDefault(g => g.CreatorId == _accountName);
-                changed = !Equals(_myGroup?.Id, newMyGroup?.Id);
+                changed = !Equals(_myGroup, newMyGroup);
                 if (changed)
                 {
                     _myGroup = newMyGroup;

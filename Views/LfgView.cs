@@ -10,6 +10,7 @@ using System.Linq;
 using Blish_HUD;
 using System.Net.Http;
 using System.Threading;
+using Blish_HUD.Content;
 
 namespace Gw2Lfg
 {
@@ -600,6 +601,14 @@ namespace Gw2Lfg
             {
                 CreateApplicationPanel(_applicationsList, application);
             }
+
+            _applicationsList.SortChildren<ApplicationPanel>((a, b) =>
+            {
+                var appA = a;
+                var appB = b;
+                return -HasEnoughKillProof(appA.Application.KillProof, _viewModel.MyGroup)
+                    .CompareTo(HasEnoughKillProof(appB.Application.KillProof, _viewModel.MyGroup));
+            });
         }
 
         private void RegisterEventHandlers()
@@ -726,6 +735,14 @@ namespace Gw2Lfg
                     _applicationPanels[application.Id] = panel;
                 }
             }
+
+            _applicationsList.SortChildren<ApplicationPanel>((a, b) =>
+            {
+                var appA = a;
+                var appB = b;
+                return -HasEnoughKillProof(appA.Application.KillProof, _viewModel.MyGroup)
+                    .CompareTo(HasEnoughKillProof(appB.Application.KillProof, _viewModel.MyGroup));
+            });
         }
 
         private void ApplyFilters()
@@ -835,11 +852,31 @@ namespace Gw2Lfg
             {
                 return "No KillProof.me data available";
             }
-            return $"LI: {kp.Li}, UFE: {kp.Ufe}, BSKP: {kp.Bskp} \n" +
-                   $"W1: {kp.W1}, W2: {kp.W2}\n" +
-                   $"W3: {kp.W3}, W4: {kp.W4}\n" +
-                   $"W5: {kp.W5}, W6: {kp.W6}\n" +
-                   $"W7: {kp.W7}, W8: {kp.W8}";
+            return $"LI: {kp.Li}     UFE: {kp.Ufe}     BSKP: {kp.Bskp} \n" +
+                   $"W1: {kp.W1}     W2:  {kp.W2}\n" +
+                   $"W3: {kp.W3}     W4:  {kp.W4}\n" +
+                   $"W5: {kp.W5}     W6:  {kp.W6}\n" +
+                   $"W7: {kp.W7}     W8:  {kp.W8}";
+        }
+
+        private static bool HasEnoughKillProof(Proto.KillProof kp, Proto.Group? group)
+        {
+            if (group == null || group.KillProofMinimum == 0 || group.KillProofId == Proto.KillProofId.KpUnknown)
+            {
+                return true;
+            }
+
+            switch (group.KillProofId)
+            {
+                case Proto.KillProofId.KpLi:
+                    return kp.Li >= group.KillProofMinimum;
+                case Proto.KillProofId.KpUfe:
+                    return kp.Ufe >= group.KillProofMinimum;
+                case Proto.KillProofId.KpBskp:
+                    return kp.Bskp >= group.KillProofMinimum;
+                default:
+                    return false;
+            }
         }
 
         // Panel creation and update methods
@@ -1095,6 +1132,25 @@ namespace Gw2Lfg
                 {
                     ShowError($"Failed to invite player: {ex.Message}");
                 }
+            };
+
+            var kpWarning = new Image(AsyncTexture2D.FromAssetId(107050))// Flag icon
+            {
+                Parent = panel,
+                Size = new Point(30, 30),
+                Right = buttonPanel.Left - PADDING,
+                Top = (panel.Height - 40) / 2,
+                Visible = !HasEnoughKillProof(application.KillProof, _viewModel.MyGroup!),
+                BasicTooltipText = "Insufficient KillProof",
+            };
+            buttonPanel.Moved += (s, e) =>
+            {
+                kpWarning.Right = buttonPanel.Left - PADDING;
+            };
+            panel.Resized += (s, e) =>
+            {
+                kpWarning.Right = buttonPanel.Left - PADDING;
+                kpWarning.Top = (panel.Height - 40) / 2;
             };
 
             return panel;
