@@ -529,91 +529,6 @@ namespace Gw2Lfg
             }
         }
 
-        private async Task CreateGroupAsync(string description, string minKpText, string kpIdText)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(description))
-                {
-                    ShowError("Please enter a group description");
-                    return;
-                }
-
-                uint.TryParse(minKpText, out uint minKp);
-                var kpId = ParseKillProofId(kpIdText);
-
-                SetLoading(true);
-                await _lfgClient.CreateGroup(
-                    description.Trim(),
-                    minKp,
-                    kpId
-                );
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Failed to create group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
-            }
-        }
-
-        private async Task UpdateGroupAsync(string groupId, string description, string minKpText, string kpIdText)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(description))
-                {
-                    return;
-                }
-
-                uint.TryParse(minKpText, out uint minKp);
-                var kpId = ParseKillProofId(kpIdText);
-
-                var updatedGroup = new Proto.Group
-                {
-                    Id = groupId,
-                    Title = description.Trim(),
-                    KillProofMinimum = minKp,
-                    KillProofId = kpId,
-                };
-
-                SetLoading(true);
-                await _lfgClient.UpdateGroup(updatedGroup);
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Failed to update group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
-            }
-        }
-
-        private async Task CloseGroupAsync(string groupId)
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(groupId))
-                {
-                    return;
-                }
-
-                SetLoading(true);
-                await _lfgClient.DeleteGroup(groupId);
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Failed to close group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
-            }
-        }
-
         private void RegisterEventHandlers()
         {
             _viewModel.ApiKeyChanged += OnApiKeyChanged;
@@ -1045,11 +960,101 @@ namespace Gw2Lfg
             return panel;
         }
 
+        private async Task CreateGroupAsync(string description, string minKpText, string kpIdText)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(description))
+                {
+                    ShowError("Please enter a group description");
+                    return;
+                }
+
+                uint.TryParse(minKpText, out uint minKp);
+                var kpId = ParseKillProofId(kpIdText);
+
+                SetLoading(true);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _lfgClient.CreateGroup(
+                    description.Trim(),
+                    minKp,
+                    kpId,
+                    cts.Token
+                );
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to create group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
+            }
+        }
+
+        private async Task UpdateGroupAsync(string groupId, string description, string minKpText, string kpIdText)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(groupId) || string.IsNullOrWhiteSpace(description))
+                {
+                    return;
+                }
+
+                uint.TryParse(minKpText, out uint minKp);
+                var kpId = ParseKillProofId(kpIdText);
+
+                var updatedGroup = new Proto.Group
+                {
+                    Id = groupId,
+                    Title = description.Trim(),
+                    KillProofMinimum = minKp,
+                    KillProofId = kpId,
+                };
+
+                SetLoading(true);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _lfgClient.UpdateGroup(updatedGroup, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to update group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
+            }
+        }
+
+        private async Task CloseGroupAsync(string groupId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(groupId))
+                {
+                    return;
+                }
+
+                SetLoading(true);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _lfgClient.DeleteGroup(groupId, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                ShowError($"Failed to close group: {ex.Message}");
+            }
+            finally
+            {
+                SetLoading(false);
+            }
+        }
+
         private async Task ApplyToGroupAsync(string groupId)
         {
             try
             {
-                await _lfgClient.CreateGroupApplication(groupId);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _lfgClient.CreateGroupApplication(groupId, cts.Token);
             }
             catch (Exception ex)
             {
