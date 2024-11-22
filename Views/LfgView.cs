@@ -346,11 +346,22 @@ namespace Gw2Lfg
                 Left = (panel.Width - 120) / 2,
             };
 
-            _createButton.Click += async (s, e) => await CreateGroupAsync(
-                _descriptionBox?.Text ?? "",
-                _requirementsNumber?.Text ?? "",
-                _requirementsDropdown?.SelectedItem ?? ""
-            );
+            _createButton.Click += async (s, e) =>
+            {
+                _createButton.Enabled = false;
+                try
+                {
+                    await CreateGroupAsync(
+                        _descriptionBox?.Text ?? "",
+                        _requirementsNumber?.Text ?? "",
+                        _requirementsDropdown?.SelectedItem ?? ""
+                    );
+                }
+                finally
+                {
+                    _createButton.Enabled = true;
+                }
+            };
         }
 
         private void BuildGroupManagementPanel()
@@ -389,15 +400,39 @@ namespace Gw2Lfg
                 Left = updateButton.Right + PADDING,
             };
 
-            updateButton.Click += async (s, e) => await UpdateGroupAsync(
-                _viewModel?.MyGroup?.Id ?? "",
-                _descriptionBox?.Text ?? "",
-                _requirementsNumber?.Text ?? "",
-                _requirementsDropdown?.SelectedItem ?? ""
-            );
-            closeButton.Click += async (s, e) => await CloseGroupAsync(
-                _viewModel?.MyGroup?.Id ?? ""
-            );
+            updateButton.Click += async (s, e) =>
+            {
+                updateButton.Enabled = false;
+                closeButton.Enabled = false;
+                try
+                {
+                    await UpdateGroupAsync(
+                                   _viewModel?.MyGroup?.Id ?? "",
+                                   _descriptionBox?.Text ?? "",
+                                   _requirementsNumber?.Text ?? "",
+                                   _requirementsDropdown?.SelectedItem ?? ""
+                               );
+                }
+                finally
+                {
+                    updateButton.Enabled = true;
+                    closeButton.Enabled = true;
+                }
+            };
+            closeButton.Click += async (s, e) =>
+            {
+                updateButton.Enabled = false;
+                closeButton.Enabled = false;
+                try
+                {
+                    await CloseGroupAsync(_viewModel?.MyGroup?.Id ?? "");
+                }
+                finally
+                {
+                    updateButton.Enabled = true;
+                    closeButton.Enabled = true;
+                }
+            };
 
             BuildApplicationsList(panel, buttonPanel.Bottom + PADDING);
         }
@@ -735,7 +770,6 @@ namespace Gw2Lfg
 
         private void ShowError(string message)
         {
-            GameService.Content.PlaySoundEffectByName("error");
             ScreenNotification.ShowNotification(message, ScreenNotification.NotificationType.Error);
         }
 
@@ -890,7 +924,22 @@ namespace Gw2Lfg
                 Visible = isYourGroup,
             };
 
-            applyButton.Click += async (s, e) => await ApplyToGroupAsync(group.Id);
+            applyButton.Click += async (s, e) =>
+            {
+                applyButton.Enabled = false;
+                try
+                {
+                    await ApplyToGroupAsync(group.Id);
+                }
+                finally
+                {
+                    if (applyButton.Parent != null)
+                    {
+                        ScreenNotification.ShowNotification("Successfully applied", ScreenNotification.NotificationType.Error);
+                        applyButton.Enabled = true;
+                    }
+                }
+            };
 
             return panel;
         }
