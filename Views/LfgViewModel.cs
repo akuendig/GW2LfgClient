@@ -160,8 +160,8 @@ namespace Gw2Lfg
 
                 if (changed)
                 {
-                    RaisePropertyChanged(nameof(Groups));
                     UpdateMyGroup(); // This will raise its own event if needed
+                    RaisePropertyChanged(nameof(Groups));
                 }
             }
         }
@@ -508,19 +508,20 @@ namespace Gw2Lfg
             {
                 return;
             }
+            string myGroupId = MyGroup.Id;
 
             try
             {
                 CancellationToken cancellationToken = _applicationsSubCts.Token;
                 IsLoadingApplications = true;
-                var initialApplications = await _client.ListGroupApplications(MyGroup.Id, cancellationToken);
+                var initialApplications = await _client.ListGroupApplications(myGroupId, cancellationToken);
                 GroupApplications = initialApplications.Applications.ToArray();
 
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await foreach (var update in _client.SubscribeGroupApplications(MyGroup.Id, cancellationToken))
+                        await foreach (var update in _client.SubscribeGroupApplications(myGroupId, cancellationToken))
                         {
                             if (cancellationToken.IsCancellationRequested)
                             {

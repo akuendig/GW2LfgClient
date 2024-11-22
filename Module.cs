@@ -29,7 +29,11 @@ namespace Gw2Lfg
         private CornerIcon _moduleIcon;
         private StandardWindow _lfgWindow;
         private SettingEntry<string> _serverAddressSetting;
-        private readonly HttpClient _httpClient = new();
+        private readonly HttpClient _httpClient = new()
+        {
+            // Set high timeout for server streaming requests.
+            Timeout = TimeSpan.FromHours(1),
+        };
         private LfgView _lfgView;
         private readonly LfgViewModel _viewModel;
 
@@ -75,7 +79,7 @@ namespace Gw2Lfg
                 // ContentsManager.GetTexture("icons/group.png"),
                 AsyncTexture2D.FromAssetId(156409),
                 "GW2 LFG");
-            _moduleIcon.Click += (s, e) => ToggleWindow();
+            _moduleIcon.Click += OnModuleIcon_Click;
 
             // Note that the windowRegion and contentRegion are matched to the size of the background image.
             _lfgWindow = new StandardWindow(
@@ -104,12 +108,11 @@ namespace Gw2Lfg
                 _lfgWindow.Subtitle = _viewModel.AccountName;
             };
 
-            _lfgView = new LfgView(_httpClient, _viewModel);
-
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
 
 #if DEBUG
-            _lfgWindow.Show(_lfgView);
+            //_lfgView = new LfgView(_httpClient, _viewModel);
+            //_lfgWindow.Show(_lfgView);
 #endif
         }
 
@@ -161,15 +164,16 @@ namespace Gw2Lfg
             }
         }
 
-        private void ToggleWindow()
+        private void OnModuleIcon_Click(object sender, MouseEventArgs e)
         {
-            if (!_lfgWindow.Visible)
+            if (_lfgView == null)
             {
+                _lfgView = new LfgView(_httpClient, _viewModel);
                 _lfgWindow.Show(_lfgView);
             }
             else
             {
-                _lfgWindow.Hide();
+                _lfgWindow.ToggleWindow();
             }
         }
     }

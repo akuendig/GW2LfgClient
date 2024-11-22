@@ -163,12 +163,6 @@ namespace Gw2Lfg
             UpdateVisibility();
         }
 
-        protected override void Unload()
-        {
-            UnregisterEventHandlers();
-            base.Unload();
-        }
-
         private void ReinitializeClients()
         {
             _cancellationTokenSource?.Cancel();
@@ -181,10 +175,10 @@ namespace Gw2Lfg
         private void UpdateVisibility()
         {
             if (_landingView != null)
-                _landingView.Visible = !_isLoading && !_hasApiKey;
+                _landingView.Visible = !_hasApiKey;
 
             if (_mainContentPanel != null)
-                _mainContentPanel.Visible = !_isLoading && _hasApiKey;
+                _mainContentPanel.Visible = _hasApiKey;
         }
 
 
@@ -229,6 +223,7 @@ namespace Gw2Lfg
 
             BuildFilterControls(container);
             BuildGroupsList(container);
+            UpdateGroupsList();
         }
 
         private void BuildFilterControls(Panel parent)
@@ -782,7 +777,7 @@ namespace Gw2Lfg
             }
             _applicationPanels.Clear();
 
-            // Dispose other managed resources if necessary
+            UnregisterEventHandlers();
         }
 
         // Helper methods for
@@ -874,6 +869,7 @@ namespace Gw2Lfg
                 Height = infoPanel.Height
             };
 
+            var isYourGroup = group.CreatorId == _viewModel.AccountName;
             var applyButton = new StandardButton
             {
                 Parent = buttonPanel,
@@ -881,7 +877,17 @@ namespace Gw2Lfg
                 Width = 100,
                 Height = 30,
                 Top = (buttonPanel.Height - 30) / 2,
-                Enabled = group.CreatorId != _viewModel.AccountName
+                Visible = !isYourGroup,
+            };
+
+            var myGroupLabel = new Label
+            {
+                Parent = buttonPanel,
+                Text = "My Group",
+                Width = 100,
+                Height = 30,
+                Top = (buttonPanel.Height - 30) / 2,
+                Visible = isYourGroup,
             };
 
             applyButton.Click += async (s, e) => await ApplyToGroupAsync(group.Id);
@@ -922,8 +928,11 @@ namespace Gw2Lfg
             }
 
             var buttonPanel = (Panel)panel.Children.Last();
-            var applyButton = (StandardButton)buttonPanel.Children.First();
-            applyButton.Enabled = group.CreatorId != _viewModel.AccountName;
+            var applyButton = buttonPanel.GetChildrenOfType<StandardButton>().First();
+            var myGroupLabel = buttonPanel.GetChildrenOfType<Label>().First();
+            var isYourGroup = group.CreatorId == _viewModel.AccountName;
+            applyButton.Visible = !isYourGroup;
+            myGroupLabel.Visible = isYourGroup;
         }
 
         private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)

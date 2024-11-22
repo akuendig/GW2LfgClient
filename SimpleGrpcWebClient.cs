@@ -211,7 +211,9 @@ namespace Gw2Lfg
 
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, methodName)
             {
-                Content = new ByteArrayContent(framedRequest)
+                Content = new ByteArrayContent(framedRequest),
+                // HTTP2 is not supported.
+                Version = new Version(1, 1),
             };
 
             // Add required headers
