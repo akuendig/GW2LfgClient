@@ -128,7 +128,6 @@ namespace Gw2Lfg
         private Dropdown? _requirementsDropdown;
         private LandingView? _landingView;
         private Panel? _mainContentPanel;
-        private bool _isLoading = false;
         private bool _hasApiKey = false;
 
         public LfgView(HttpClient httpClient, LfgViewModel viewModel)
@@ -158,7 +157,7 @@ namespace Gw2Lfg
             {
                 Parent = buildPanel,
                 Size = buildPanel.Size,
-                Visible = !_isLoading && !_hasApiKey
+                Visible = !_hasApiKey
             }.Build();
 
             BuildMainLayout(_mainContentPanel);
@@ -184,13 +183,6 @@ namespace Gw2Lfg
 
             if (_mainContentPanel != null)
                 _mainContentPanel.Visible = _hasApiKey;
-        }
-
-
-        private void SetLoading(bool loading)
-        {
-            _isLoading = loading;
-            UpdateVisibility();
         }
 
         private void BuildMainLayout(Container buildPanel)
@@ -982,7 +974,6 @@ namespace Gw2Lfg
                 uint.TryParse(minKpText, out uint minKp);
                 var kpId = ParseKillProofId(kpIdText);
 
-                SetLoading(true);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _lfgClient.CreateGroup(
                     description.Trim(),
@@ -994,10 +985,6 @@ namespace Gw2Lfg
             catch (Exception ex)
             {
                 ShowError($"Failed to create group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
             }
         }
 
@@ -1021,17 +1008,12 @@ namespace Gw2Lfg
                     KillProofId = kpId,
                 };
 
-                SetLoading(true);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _lfgClient.UpdateGroup(updatedGroup, cts.Token);
             }
             catch (Exception ex)
             {
                 ShowError($"Failed to update group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
             }
         }
 
@@ -1044,17 +1026,12 @@ namespace Gw2Lfg
                     return;
                 }
 
-                SetLoading(true);
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _lfgClient.DeleteGroup(groupId, cts.Token);
             }
             catch (Exception ex)
             {
                 ShowError($"Failed to close group: {ex.Message}");
-            }
-            finally
-            {
-                SetLoading(false);
             }
         }
 
