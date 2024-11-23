@@ -124,5 +124,13 @@ namespace Gw2Lfg
                 "/gw2lfg.LfgService/SubscribeGroups", request, cancellationToken
             );
         }
+
+        public async Task SendHeartbeat(CancellationToken cancellationToken = default)
+        {
+            var request = new HeartbeatRequest();
+            await _client.UnaryCallAsync<HeartbeatRequest, HeartbeatResponse>(
+                "/gw2lfg.LfgService/Heartbeat", request, cancellationToken
+            );
+        }
     }
 }

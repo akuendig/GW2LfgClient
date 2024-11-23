@@ -16,13 +16,51 @@ namespace Gw2Lfg
 {
     public class GroupPanel : Panel
     {
+        private readonly Timer _statusUpdateTimer;
+
         public Proto.Group Group { get; set; }
+        public Label StatusLabel;
 
         public GroupPanel(Proto.Group group)
         {
             Group = group;
             HeightSizingMode = SizingMode.AutoSize;
             ShowBorder = true;
+
+            // Update status every 10 seconds
+            // TODO: We need this timer because if the user is inactive, the update_time will not be updated
+            // _statusUpdateTimer = new Timer(TimeSpan.FromSeconds(10));
+            // _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus();
+            // _statusUpdateTimer.Start();
+        }
+
+        public void UpdateStatus()
+        {
+            var lastHeartbeat = DateTimeOffset.FromUnixTimeSeconds(Group.UpdatedAtSec);
+            var now = DateTimeOffset.UtcNow;
+            var timeSinceHeartbeat = now - lastHeartbeat;
+
+            if (timeSinceHeartbeat < TimeSpan.FromMinutes(2))
+            {
+                StatusLabel.Text = "Active";
+                StatusLabel.TextColor = Color.Green;
+            }
+            else if (timeSinceHeartbeat < TimeSpan.FromMinutes(5))
+            {
+                StatusLabel.Text = "Away";
+                StatusLabel.TextColor = Color.Yellow;
+            }
+            else
+            {
+                StatusLabel.Text = "Inactive";
+                StatusLabel.TextColor = Color.Red;
+            }
+        }
+
+        protected override void DisposeControl()
+        {
+            _statusUpdateTimer?.Dispose();
+            base.DisposeControl();
         }
     }
 
@@ -658,6 +696,7 @@ namespace Gw2Lfg
 
         private void OnVisibleChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            // TODO: Enable/Disable heartbeat and refresh logic
             if (_viewModel.Visible)
             {
                 RefreshApplicationsList();
@@ -905,12 +944,12 @@ namespace Gw2Lfg
                 Parent = panel,
                 Left = PADDING,
                 Top = 5,
-                Width = panel.Width - 120,
+                Width = panel.Width - 2 * 100 - 3 * PADDING,
                 HeightSizingMode = SizingMode.AutoSize
             };
             panel.Resized += (s, e) =>
             {
-                infoPanel.Width = panel.Width - 120;
+                infoPanel.Width = panel.Width - 2 * 100 - 3 * PADDING;
             };
 
             var titleLabel = new Label
@@ -948,6 +987,34 @@ namespace Gw2Lfg
             }
 
             infoPanel.Height = height + PADDING;
+
+            var statusPanel = new Panel
+            {
+                Parent = panel,
+                Top = 5,
+                Left = infoPanel.Right + PADDING,
+                Width = 100,
+                Height = infoPanel.Height,
+            };
+            infoPanel.Resized += (s, e) =>
+            {
+                statusPanel.Left = infoPanel.Right + PADDING;
+                statusPanel.Height = infoPanel.Height;
+            };
+            panel.StatusLabel = new Label
+            {
+                Parent = statusPanel,
+                Width = statusPanel.Width,
+                Height = 30,
+                VerticalAlignment = VerticalAlignment.Middle,
+                Top = (statusPanel.Height - 30) / 2,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
+            };
+            infoPanel.Resized += (s, e) =>
+            {
+                panel.StatusLabel.Top = (statusPanel.Height - 30) / 2;
+            };
+            panel.UpdateStatus();
 
             var buttonPanel = new Panel
             {
@@ -1053,6 +1120,8 @@ namespace Gw2Lfg
             var isYourGroup = group.CreatorId == _viewModel.AccountName;
             applyButton.Visible = !isYourGroup;
             myGroupLabel.Visible = isYourGroup;
+
+            panel.UpdateStatus();
         }
 
         private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)

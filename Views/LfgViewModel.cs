@@ -43,6 +43,7 @@ namespace Gw2Lfg
         private CancellationTokenSource _apiKeyCts = new();
         private CancellationTokenSource _groupsSubCts = new();
         private CancellationTokenSource _applicationsSubCts = new();
+        private CancellationTokenSource _heartbeatCts = new();
 
         public LfgViewModel(HttpClient httpClient)
         {
@@ -50,16 +51,9 @@ namespace Gw2Lfg
             _synchronizationContext = SynchronizationContext.Current ?? new SynchronizationContext();
 
             ApiKeyChanged += OnApiKeyChanged;
-            GroupsChanged += OnGroupsChanged;
-        }
-
-        public void Connect(string apiKey)
-        {
-            _apiKeyCts.Cancel();
-            _apiKeyCts.Dispose();
-            _apiKeyCts = new CancellationTokenSource();
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, _apiKeyCts.Token);
-            _client = new LfgClient(_grpcClient);
+            // GroupsChanged += OnGroupsChanged;
+            MyGroupChanged += OnMyGroupChanged;
+            VisibleChanged += OnVisibleChanged;
         }
 
         private void RaisePropertyChanged(string propertyName)
@@ -448,58 +442,59 @@ namespace Gw2Lfg
 
         private async Task RefreshGroupsAndSubscribe()
         {
+            // TODO: This should probably retry in case the server goes away?
             if (string.IsNullOrEmpty(ApiKey))
             {
                 return;
             }
 
+            CancellationToken cancellationToken = _groupsSubCts.Token;
             try
             {
-                CancellationToken cancellationToken = _groupsSubCts.Token;
                 IsLoadingGroups = true;
                 var initialGroups = await _client.ListGroups(cancellationToken);
                 Groups = initialGroups.Groups.ToArray();
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (var update in _client.SubscribeGroups(cancellationToken))
-                        {
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                break;
-                            }
-
-                            switch (update.UpdateCase)
-                            {
-                                case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
-                                    AddGroup(update.NewGroup);
-                                    break;
-                                case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
-                                    RemoveGroup(update.RemovedGroupId);
-                                    break;
-                                case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
-                                    UpdateGroup(update.UpdatedGroup);
-                                    break;
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Normal cancellation, ignore
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Group subscription error");
-                    }
-                }, cancellationToken);
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "Failed to initialize groups");
             }
             finally { IsLoadingGroups = false; }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var update in _client.SubscribeGroups(cancellationToken))
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        switch (update.UpdateCase)
+                        {
+                            case Proto.GroupsUpdate.UpdateOneofCase.NewGroup:
+                                AddGroup(update.NewGroup);
+                                break;
+                            case Proto.GroupsUpdate.UpdateOneofCase.RemovedGroupId:
+                                RemoveGroup(update.RemovedGroupId);
+                                break;
+                            case Proto.GroupsUpdate.UpdateOneofCase.UpdatedGroup:
+                                UpdateGroup(update.UpdatedGroup);
+                                break;
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Normal cancellation, ignore
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Group subscription error");
+                }
+            }, cancellationToken);
         }
 
         private async Task RefreshApplicationsAndSubscribe()
@@ -509,54 +504,106 @@ namespace Gw2Lfg
                 return;
             }
             string myGroupId = MyGroup.Id;
+            CancellationToken cancellationToken = _applicationsSubCts.Token;
 
+            // TODO: This should probably retry in case the server goes away?
             try
             {
-                CancellationToken cancellationToken = _applicationsSubCts.Token;
                 IsLoadingApplications = true;
                 var initialApplications = await _client.ListGroupApplications(myGroupId, cancellationToken);
                 GroupApplications = initialApplications.Applications.ToArray();
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await foreach (var update in _client.SubscribeGroupApplications(myGroupId, cancellationToken))
-                        {
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                break;
-                            }
-
-                            switch (update.UpdateCase)
-                            {
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
-                                    AddApplication(update.NewApplication);
-                                    break;
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
-                                    RemoveApplication(update.RemovedApplicationId);
-                                    break;
-                                case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
-                                    UpdateApplication(update.UpdatedApplication);
-                                    break;
-                            }
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Normal cancellation, ignore
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error(ex, "Application subscription error");
-                    }
-                }, cancellationToken);
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "Failed to initialize applications");
             }
             finally { IsLoadingApplications = false; }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await foreach (var update in _client.SubscribeGroupApplications(myGroupId, cancellationToken))
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        switch (update.UpdateCase)
+                        {
+                            case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
+                                AddApplication(update.NewApplication);
+                                break;
+                            case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
+                                RemoveApplication(update.RemovedApplicationId);
+                                break;
+                            case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
+                                UpdateApplication(update.UpdatedApplication);
+                                break;
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Normal cancellation, ignore
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Application subscription error");
+                }
+            }, cancellationToken);
+        }
+
+        private void OnVisibleChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (Visible)
+            {
+                SendHeartbeats();
+                TrySubscribeGroups();
+            }
+            else
+            {
+                _groupsSubCts.Cancel();
+                _applicationsSubCts.Cancel();
+                _heartbeatCts.Cancel();
+            }
+        }
+
+        private async void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            Connect(ApiKey);
+            await TrySubscribeGroups();
+            await TrySubscribeApplications();
+        }
+
+        private async void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
+        {
+            // TODO: This now runs on every heartbeat because the update time of the group
+            // is changed. Should it?
+            await TrySubscribeApplications();
+        }
+
+        private async void OnMyGroupChanged(object sender, PropertyChangedEventArgs e)
+        {
+            // TODO: This now runs on every heartbeat because the update time of the group
+            // is changed. Should it?
+            await TrySubscribeApplications();
+        }
+
+        public void Connect(string apiKey)
+        {
+            lock (_stateLock)
+            {
+                _applicationsSubCts.Cancel();
+                _groupsSubCts.Cancel();
+                _heartbeatCts.Cancel();
+
+                _apiKeyCts.Cancel();
+                _apiKeyCts = new CancellationTokenSource();
+                _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, _apiKeyCts.Token);
+                _client = new LfgClient(_grpcClient);
+            }
         }
 
         private async Task TrySubscribeGroups()
@@ -575,16 +622,32 @@ namespace Gw2Lfg
             await RefreshApplicationsAndSubscribe();
         }
 
-        private async void OnApiKeyChanged(object sender, PropertyChangedEventArgs e)
+        private async Task SendHeartbeats()
         {
-            Connect(ApiKey);
-            await TrySubscribeGroups();
-            await TrySubscribeApplications();
-        }
+            _heartbeatCts?.Cancel();
+            _heartbeatCts?.Dispose();
+            _heartbeatCts = new CancellationTokenSource();
 
-        private async void OnGroupsChanged(object sender, PropertyChangedEventArgs e)
-        {
-            await TrySubscribeApplications();
+            try
+            {
+                CancellationToken cancellationToken = _heartbeatCts.Token;
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    if (!string.IsNullOrEmpty(ApiKey))
+                    {
+                        await _client.SendHeartbeat(cancellationToken);
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal cancellation, ignore
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Heartbeat error");
+            }
         }
 
         public void Dispose()
@@ -598,6 +661,9 @@ namespace Gw2Lfg
                     GroupsChanged = null;
                     MyGroupChanged = null;
                     GroupApplicationsChanged = null;
+                    VisibleChanged = null;
+                    IsLoadingGroupsChanged = null;
+                    IsLoadingApplicationsChanged = null;
                     _disposed = true;
                 }
                 _apiKeyCts.Cancel();
