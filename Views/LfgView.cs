@@ -14,130 +14,6 @@ using Blish_HUD.Content;
 
 namespace Gw2Lfg
 {
-    public class GroupPanel : Panel
-    {
-        private readonly Timer _statusUpdateTimer;
-
-        public Proto.Group Group { get; set; }
-        public Label StatusLabel;
-
-        public GroupPanel(Proto.Group group)
-        {
-            Group = group;
-            HeightSizingMode = SizingMode.AutoSize;
-            ShowBorder = true;
-
-            // Update status every 10 seconds
-            // TODO: We need this timer because if the user is inactive, the update_time will not be updated
-            // _statusUpdateTimer = new Timer(TimeSpan.FromSeconds(10));
-            // _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus();
-            // _statusUpdateTimer.Start();
-        }
-
-        public void UpdateStatus()
-        {
-            var lastHeartbeat = DateTimeOffset.FromUnixTimeSeconds(Group.UpdatedAtSec);
-            var now = DateTimeOffset.UtcNow;
-            var timeSinceHeartbeat = now - lastHeartbeat;
-
-            if (timeSinceHeartbeat < TimeSpan.FromMinutes(2))
-            {
-                StatusLabel.Text = "Active";
-                StatusLabel.TextColor = Color.Green;
-            }
-            else if (timeSinceHeartbeat < TimeSpan.FromMinutes(5))
-            {
-                StatusLabel.Text = "Away";
-                StatusLabel.TextColor = Color.Yellow;
-            }
-            else
-            {
-                StatusLabel.Text = "Inactive";
-                StatusLabel.TextColor = Color.Red;
-            }
-        }
-
-        protected override void DisposeControl()
-        {
-            _statusUpdateTimer?.Dispose();
-            base.DisposeControl();
-        }
-    }
-
-    public class ApplicationPanel : Panel
-    {
-        public Proto.GroupApplication Application { get; set; }
-
-        public ApplicationPanel(Proto.GroupApplication application)
-        {
-            Application = application;
-            Height = 60;
-            ShowBorder = true;
-        }
-    }
-
-    public class LandingView : Container
-    {
-        private const int PADDING = 10;
-
-        public LandingView Build()
-        {
-            Size = Parent.ContentRegion.Size;
-
-            var panel = new Panel
-            {
-                Parent = this,
-                HeightSizingMode = SizingMode.AutoSize,
-                WidthSizingMode = SizingMode.AutoSize,
-            };
-
-            // Icon
-            //var icon = new Image(AsyncTexture2D.FromAssetId(157128)) // Key icon
-            var icon = new Image() // Key icon
-            {
-                Parent = panel,
-                Size = new Point(64, 64),
-            };
-
-            // Title
-            var titleLabel = new Label
-            {
-                Parent = panel,
-                Text = "API Key Required",
-                Top = icon.Bottom + PADDING,
-                AutoSizeWidth = true,
-                AutoSizeHeight = true,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size20, ContentService.FontStyle.Regular),
-            };
-
-            // Instructions
-            new Label
-            {
-                Parent = panel,
-                Text = "To use the LFG module, please make sure to be logged in with your character,\n" +
-                      "provide Blish HUD  with an API key with 'account' permissions,\n" +
-                      "and give this addon permissions to your 'account'.\n\n" +
-                      "1. Go to Account Settings in Guild Wars 2\n" +
-                      "2. Generate a new API key with 'account' permissions\n" +
-                      "3. The module will automatically connect once permissions are granted",
-                Top = titleLabel.Bottom + PADDING,
-                AutoSizeWidth = true,
-                AutoSizeHeight = true,
-                WrapText = true,
-                Width = 400,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular),
-            };
-
-            panel.Resized += (s, e) =>
-            {
-                panel.Left = (Width - panel.Width) / 2;
-                panel.Top = 100;
-            };
-
-            return this;
-        }
-    }
-
     public class LfgView : View, IDisposable
     {
         private const int PADDING = 10;
@@ -146,16 +22,13 @@ namespace Gw2Lfg
         private HttpClient _httpClient;
         private SimpleGrpcWebClient _grpcClient = null!;
         private LfgClient _lfgClient = null!;
-        private readonly Dictionary<string, GroupPanel> _groupPanels = [];
+        private readonly Dictionary<string, GroupListRowPanel> _groupPanels = [];
         private readonly Dictionary<string, ApplicationPanel> _applicationPanels = [];
         private readonly LfgViewModel _viewModel;
 
-        private FlowPanel? _groupsFlowPanel;
         private LoadingSpinner? _groupsLoadingSpinner;
         private FlowPanel? _applicationsList;
         private LoadingSpinner? _applicationsLoadingSpinner;
-        private TextBox? _searchBox;
-        private Dropdown? _contentTypeDropdown;
         private Panel? _groupManagementPanel;
         private StandardButton? _createButton;
         private TextBox? _descriptionBox;
@@ -225,11 +98,10 @@ namespace Gw2Lfg
 
         private void BuildMainLayout(Container buildPanel)
         {
-            var leftPanel = new Panel
+            var leftPanel = new GroupListPanel(_viewModel, _lfgClient)
             {
                 Parent = buildPanel,
                 Width = (int)(buildPanel.ContentRegion.Width * 0.6f),
-                HeightSizingMode = SizingMode.Fill,
             };
 
             var rightPanel = new Panel
@@ -248,117 +120,7 @@ namespace Gw2Lfg
                 rightPanel.Width = buildPanel.ContentRegion.Width - leftPanel.Width - PADDING;
             };
 
-            BuildGroupListPanel(leftPanel);
             BuildManagementPanel(rightPanel);
-        }
-
-        private void BuildGroupListPanel(Panel parent)
-        {
-            var container = new Panel
-            {
-                Parent = parent,
-                Width = parent.Width - (PADDING * 2),
-                Height = parent.Height - PADDING,
-                Left = PADDING,
-                Top = PADDING,
-            };
-            parent.Resized += (s, e) =>
-            {
-                container.Width = parent.Width - (PADDING * 2);
-                container.Height = parent.Height - PADDING;
-            };
-
-            BuildFilterControls(container);
-            BuildGroupsList(container);
-            UpdateGroupsList();
-        }
-
-        private void BuildFilterControls(Panel parent)
-        {
-            var filterPanel = new Panel
-            {
-                Parent = parent,
-                Height = 40,
-                WidthSizingMode = SizingMode.Fill,
-            };
-
-            _contentTypeDropdown = new Dropdown
-            {
-                Parent = filterPanel,
-                Top = 5,
-                Height = 30,
-                Width = 120,
-            };
-
-            PopulateContentTypeDropdown();
-
-            _searchBox = new TextBox
-            {
-                Parent = filterPanel,
-                Left = _contentTypeDropdown.Right + PADDING,
-                Top = 5,
-                Height = 30,
-                Width = filterPanel.Width - _contentTypeDropdown.Right - (PADDING * 2),
-                PlaceholderText = "Search groups...",
-            };
-            filterPanel.Resized += (s, e) =>
-            {
-                _searchBox.Width = filterPanel.Width - _contentTypeDropdown.Right - (PADDING * 2);
-            };
-
-            // Debounce search to avoid excessive updates
-            var debounceTimer = new System.Timers.Timer(300);
-            debounceTimer.Elapsed += (s, e) =>
-            {
-                debounceTimer.Stop();
-                ApplyFilters();
-            };
-
-            _searchBox.TextChanged += (s, e) =>
-            {
-                debounceTimer.Stop();
-                debounceTimer.Start();
-            };
-
-            _contentTypeDropdown.ValueChanged += (s, e) => ApplyFilters();
-        }
-
-        private void BuildGroupsList(Panel parent)
-        {
-            _groupsFlowPanel = new FlowPanel
-            {
-                Parent = parent,
-                Top = 50,
-                Height = parent.Height - 50,
-                WidthSizingMode = SizingMode.Fill,
-                FlowDirection = ControlFlowDirection.TopToBottom,
-                ControlPadding = new Vector2(0, 5),
-                ShowBorder = true,
-                HeightSizingMode = SizingMode.Fill,
-            };
-            parent.Resized += (s, e) =>
-            {
-                _groupsFlowPanel.Height = parent.Height - 50;
-            };
-
-            _groupPanels.Clear();
-            _groupsLoadingSpinner = new LoadingSpinner
-            {
-                Parent = parent,
-                Location = new Point(
-                    (parent.Width - 64) / 2,
-                    (parent.Height - 64) / 2
-                ),
-                Visible = _viewModel.IsLoadingGroups,
-                ZIndex = _groupsFlowPanel.ZIndex + 1,
-            };
-            parent.Resized += (s, e) =>
-            {
-                _groupsLoadingSpinner.Location = new Point(
-                    (parent.Width - 64) / 2,
-                    (parent.Height - 64) / 2
-                );
-            };
         }
 
         private void BuildManagementPanel(Panel parent)
@@ -652,7 +414,6 @@ namespace Gw2Lfg
         private void RegisterEventHandlers()
         {
             _viewModel.ApiKeyChanged += OnApiKeyChanged;
-            _viewModel.GroupsChanged += OnGroupsChanged;
             _viewModel.MyGroupChanged += OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged += OnGroupApplicationsChanged;
             _viewModel.VisibleChanged += OnVisibleChanged;
@@ -663,7 +424,6 @@ namespace Gw2Lfg
         private void UnregisterEventHandlers()
         {
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
-            _viewModel.GroupsChanged -= OnGroupsChanged;
             _viewModel.MyGroupChanged -= OnMyGroupChanged;
             _viewModel.GroupApplicationsChanged -= OnGroupApplicationsChanged;
             _viewModel.VisibleChanged -= OnVisibleChanged;
@@ -678,11 +438,6 @@ namespace Gw2Lfg
             UpdateVisibility();
         }
 
-        private void OnGroupsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            UpdateGroupsList();
-        }
-
         private void OnMyGroupChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             RefreshManagementPanel();
@@ -690,7 +445,6 @@ namespace Gw2Lfg
 
         private void OnGroupApplicationsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            UpdateGroupsList(); // For the Apply button
             RefreshApplicationsList();
         }
 
@@ -713,37 +467,6 @@ namespace Gw2Lfg
         {
             if (_applicationsLoadingSpinner == null) return;
             _applicationsLoadingSpinner.Visible = _viewModel.IsLoadingApplications;
-        }
-
-        private void UpdateGroupsList()
-        {
-            var currentGroups = new HashSet<string>(_groupPanels.Keys);
-            var newGroups = new HashSet<string>(_viewModel.Groups.Select(g => g.Id));
-
-            // Remove panels for groups that no longer exist
-            foreach (var groupId in currentGroups.Except(newGroups))
-            {
-                if (_groupPanels.TryGetValue(groupId, out var panel))
-                {
-                    panel.Dispose();
-                    _groupPanels.Remove(groupId);
-                }
-            }
-
-            // Add or update panels for current groups
-            foreach (var group in _viewModel.Groups)
-            {
-                if (_groupPanels.TryGetValue(group.Id, out var existingPanel))
-                {
-                    UpdateGroupPanel(existingPanel, group);
-                }
-                else
-                {
-                    AddGroupPanel(group);
-                }
-            }
-
-            ApplyFilters();
         }
 
         private void RefreshApplicationsList()
@@ -784,56 +507,13 @@ namespace Gw2Lfg
             });
         }
 
-        private void ApplyFilters()
-        {
-            if (_searchBox == null || _contentTypeDropdown == null || _groupsFlowPanel == null) return;
-            var searchText = _searchBox.Text.Trim().ToLower();
-            var contentType = _contentTypeDropdown.SelectedItem;
-
-            foreach (var panel in _groupPanels.Values)
-            {
-                var group = panel.Group;
-                var visible = true;
-
-                if (!string.IsNullOrEmpty(searchText))
-                {
-                    visible = group.Title.ToLower().Contains(searchText);
-                }
-
-                if (visible && contentType != "All")
-                {
-                    // Add content type filtering logic here
-                    // visible = MatchesContentType(group, contentType);
-                }
-
-                panel.Visible = visible;
-            }
-
-            _groupsFlowPanel.RecalculateLayout();
-        }
-
-        private void ShowError(string message)
-        {
-            ScreenNotification.ShowNotification(message, ScreenNotification.NotificationType.Error);
-        }
-
-        private void PopulateContentTypeDropdown()
-        {
-            _contentTypeDropdown!.Items.Add("All");
-            _contentTypeDropdown.Items.Add("Fractals");
-            _contentTypeDropdown.Items.Add("Raids");
-            _contentTypeDropdown.Items.Add("Strike Missions");
-            _contentTypeDropdown.Items.Add("Open World");
-            _contentTypeDropdown.SelectedItem = "All";
-        }
-
         private void PopulateKillProofDropdown()
         {
             _requirementsDropdown!.Items.Add("");
             _requirementsDropdown.Items.Add("LI");
             _requirementsDropdown.Items.Add("UFE");
             _requirementsDropdown.Items.Add("BSKP");
-            _requirementsDropdown.SelectedItem = FormatKillProofId(
+            _requirementsDropdown.SelectedItem = KillProof.FormatId(
                 _viewModel.MyGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
             );
         }
@@ -856,33 +536,6 @@ namespace Gw2Lfg
             _applicationPanels.Clear();
 
             UnregisterEventHandlers();
-        }
-
-        // Helper methods for
-        // Helper methods for KillProof handling
-        private static Proto.KillProofId ParseKillProofId(string value) => value switch
-        {
-            "LI" => Proto.KillProofId.KpLi,
-            "UFE" => Proto.KillProofId.KpUfe,
-            "BSKP" => Proto.KillProofId.KpBskp,
-            _ => Proto.KillProofId.KpUnknown
-        };
-
-        private static string FormatKillProofId(Proto.KillProofId id) => id switch
-        {
-            Proto.KillProofId.KpLi => "LI",
-            Proto.KillProofId.KpUfe => "UFE",
-            Proto.KillProofId.KpBskp => "BSKP",
-            _ => ""
-        };
-
-        private static string FormatKillProofRequirement(Proto.Group group)
-        {
-            if (group.KillProofMinimum == 0 || group.KillProofId == Proto.KillProofId.KpUnknown)
-            {
-                return "";
-            }
-            return $"{group.KillProofMinimum} {FormatKillProofId(group.KillProofId)}";
         }
 
         private static string FormatKillProofDetails(Proto.KillProof kp)
@@ -916,212 +569,6 @@ namespace Gw2Lfg
                 default:
                     return false;
             }
-        }
-
-        // Panel creation and update methods
-        private void AddGroupPanel(Proto.Group group)
-        {
-            var panel = CreateGroupPanel(group);
-            _groupPanels[group.Id] = panel;
-            panel.Parent = _groupsFlowPanel;
-        }
-
-        private GroupPanel CreateGroupPanel(Proto.Group group)
-        {
-            var panel = new GroupPanel(group)
-            {
-                HeightSizingMode = SizingMode.AutoSize,
-                Width = _groupsFlowPanel!.Width - 20,
-                ShowBorder = true,
-            };
-            _groupsFlowPanel.Resized += (s, e) =>
-            {
-                panel.Width = _groupsFlowPanel.Width - 20;
-            };
-
-            var infoPanel = new Panel
-            {
-                Parent = panel,
-                Left = PADDING,
-                Top = 5,
-                Width = panel.Width - 2 * 100 - 3 * PADDING,
-                HeightSizingMode = SizingMode.AutoSize
-            };
-            panel.Resized += (s, e) =>
-            {
-                infoPanel.Width = panel.Width - 2 * 100 - 3 * PADDING;
-            };
-
-            var titleLabel = new Label
-            {
-                Parent = infoPanel,
-                Text = group.Title,
-                AutoSizeHeight = true,
-                Width = infoPanel.Width,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
-            };
-            infoPanel.Resized += (s, e) =>
-            {
-                titleLabel.Width = infoPanel.Width;
-            };
-
-            int height = titleLabel.Height;
-
-            var kpRequirement = FormatKillProofRequirement(group);
-            if (!string.IsNullOrEmpty(kpRequirement))
-            {
-                var requirementsLabel = new Label
-                {
-                    Parent = infoPanel,
-                    Text = kpRequirement,
-                    Top = height,
-                    AutoSizeHeight = true,
-                    Width = infoPanel.Width,
-                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
-                };
-                infoPanel.Resized += (s, e) =>
-                {
-                    requirementsLabel.Width = infoPanel.Width;
-                };
-                height += requirementsLabel.Height;
-            }
-
-            infoPanel.Height = height + PADDING;
-
-            var statusPanel = new Panel
-            {
-                Parent = panel,
-                Top = 5,
-                Left = infoPanel.Right + PADDING,
-                Width = 100,
-                Height = infoPanel.Height,
-            };
-            infoPanel.Resized += (s, e) =>
-            {
-                statusPanel.Left = infoPanel.Right + PADDING;
-                statusPanel.Height = infoPanel.Height;
-            };
-            panel.StatusLabel = new Label
-            {
-                Parent = statusPanel,
-                Width = statusPanel.Width,
-                Height = 30,
-                VerticalAlignment = VerticalAlignment.Middle,
-                Top = (statusPanel.Height - 30) / 2,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
-            };
-            infoPanel.Resized += (s, e) =>
-            {
-                panel.StatusLabel.Top = (statusPanel.Height - 30) / 2;
-            };
-            panel.UpdateStatus();
-
-            var buttonPanel = new Panel
-            {
-                Parent = panel,
-                Left = panel.Width - 110,
-                Width = 100,
-                HeightSizingMode = SizingMode.Fill,
-            };
-            panel.Resized += (s, e) =>
-            {
-                buttonPanel.Left = panel.Width - 110;
-            };
-
-            var isYourGroup = group.CreatorId == _viewModel.AccountName;
-            var applyButton = new StandardButton
-            {
-                Parent = buttonPanel,
-                Text = "Apply",
-                Width = 100,
-                Height = 30,
-                Top = (buttonPanel.Height - 30) / 2,
-                Visible = !isYourGroup,
-            };
-            buttonPanel.Resized += (s, e) =>
-            {
-                applyButton.Top = (buttonPanel.Height - 30) / 2;
-            };
-
-            var myGroupLabel = new Label
-            {
-                Parent = buttonPanel,
-                Text = "My Group",
-                Width = 100,
-                Height = 30,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Top = (buttonPanel.Height - 30) / 2,
-                Visible = isYourGroup,
-            };
-            buttonPanel.Resized += (s, e) =>
-            {
-                myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
-            };
-
-            applyButton.Click += async (s, e) =>
-            {
-                applyButton.Enabled = false;
-                try
-                {
-                    await ApplyToGroupAsync(group.Id);
-                    ScreenNotification.ShowNotification("Successfully applied", ScreenNotification.NotificationType.Info);
-                }
-                finally
-                {
-                    if (applyButton.Parent != null)
-                    {
-                        applyButton.Enabled = true;
-                    }
-                }
-            };
-
-            return panel;
-        }
-
-        private void UpdateGroupPanel(GroupPanel panel, Proto.Group group)
-        {
-            panel.Group = group;
-            var infoPanel = (Panel)panel.Children.First();
-            var titleLabel = (Label)infoPanel.Children.First();
-            titleLabel.Text = group.Title;
-
-            var kpRequirement = FormatKillProofRequirement(group);
-            if (infoPanel.Children.Count > 1)
-            {
-                if (string.IsNullOrEmpty(kpRequirement))
-                {
-                    infoPanel.Children[1].Dispose();
-                }
-                else
-                {
-                    ((Label)infoPanel.Children[1]).Text = kpRequirement;
-                }
-            }
-            else if (!string.IsNullOrEmpty(kpRequirement))
-            {
-                var requirementsLabel = new Label
-                {
-                    Parent = infoPanel,
-                    Text = kpRequirement,
-                    Top = titleLabel.Height,
-                    AutoSizeHeight = true,
-                    Width = infoPanel.Width,
-                    Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
-                };
-            }
-            infoPanel.Height = infoPanel.Children.Sum(c => c.Height) + PADDING;
-
-            var buttonPanel = (Panel)panel.Children.Last();
-            buttonPanel.Height = infoPanel.Height;
-            var applyButton = buttonPanel.GetChildrenOfType<StandardButton>().First();
-            applyButton.Top = (buttonPanel.Height - 30) / 2;
-            var myGroupLabel = buttonPanel.GetChildrenOfType<Label>().First();
-            myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
-            var isYourGroup = group.CreatorId == _viewModel.AccountName;
-            applyButton.Visible = !isYourGroup;
-            myGroupLabel.Visible = isYourGroup;
-
-            panel.UpdateStatus();
         }
 
         private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)
@@ -1199,7 +646,7 @@ namespace Gw2Lfg
                 }
                 catch (Exception ex)
                 {
-                    ShowError($"Failed to invite player: {ex.Message}");
+                    Notifications.ShowError($"Failed to invite player: {ex.Message}");
                 }
             };
 
@@ -1231,12 +678,12 @@ namespace Gw2Lfg
             {
                 if (string.IsNullOrWhiteSpace(description))
                 {
-                    ShowError("Please enter a group description");
+                    Notifications.ShowError("Please enter a group description");
                     return;
                 }
 
                 uint.TryParse(minKpText, out uint minKp);
-                var kpId = ParseKillProofId(kpIdText);
+                var kpId = KillProof.ParseId(kpIdText);
 
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 await _lfgClient.CreateGroup(
@@ -1248,7 +695,7 @@ namespace Gw2Lfg
             }
             catch (Exception ex)
             {
-                ShowError($"Failed to create group: {ex.Message}");
+                Notifications.ShowError($"Failed to create group: {ex.Message}");
             }
         }
 
@@ -1262,7 +709,7 @@ namespace Gw2Lfg
                 }
 
                 uint.TryParse(minKpText, out uint minKp);
-                var kpId = ParseKillProofId(kpIdText);
+                var kpId = KillProof.ParseId(kpIdText);
 
                 var updatedGroup = new Proto.Group
                 {
@@ -1277,7 +724,7 @@ namespace Gw2Lfg
             }
             catch (Exception ex)
             {
-                ShowError($"Failed to update group: {ex.Message}");
+                Notifications.ShowError($"Failed to update group: {ex.Message}");
             }
         }
 
@@ -1295,20 +742,7 @@ namespace Gw2Lfg
             }
             catch (Exception ex)
             {
-                ShowError($"Failed to close group: {ex.Message}");
-            }
-        }
-
-        private async Task ApplyToGroupAsync(string groupId)
-        {
-            try
-            {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await _lfgClient.CreateGroupApplication(groupId, cts.Token);
-            }
-            catch (Exception ex)
-            {
-                ShowError($"Failed to apply to group: {ex.Message}");
+                Notifications.ShowError($"Failed to close group: {ex.Message}");
             }
         }
     }
