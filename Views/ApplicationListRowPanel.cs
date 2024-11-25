@@ -18,7 +18,6 @@ namespace Gw2Lfg
             Group = group;
             Application = application;
             Height = 50;
-            Width = Parent?.Width - 10 ?? 400;
             ShowBorder = true;
 
             var applicantInfo = new Panel

@@ -11,7 +11,7 @@ namespace Gw2Lfg
     {
         private readonly LfgViewModel _viewModel;
         private readonly Dictionary<string, ApplicationListRowPanel> _applicationPanels = new();
-        private FlowPanel _applicationsPanel;
+        private FlowPanel _applicationsFlowPanel;
         private LoadingSpinner? _applicationsLoadingSpinner;
 
         public ApplicationListPanel(LfgViewModel viewModel)
@@ -25,6 +25,7 @@ namespace Gw2Lfg
             _viewModel.IsLoadingApplicationsChanged += OnIsApplicationsLoadingChanged;
 
             BuildApplicationsList();
+            RefreshApplicationsList();
         }
 
         private void BuildApplicationsList()
@@ -43,7 +44,7 @@ namespace Gw2Lfg
                 _applicationsLoadingSpinner.Location = new Point((Width - 64) / 2, (Height - 64) / 2);
             };
 
-            _applicationsPanel = new FlowPanel
+            _applicationsFlowPanel = new FlowPanel
             {
                 Parent = this,
                 Width = Width - 10,
@@ -54,28 +55,9 @@ namespace Gw2Lfg
             };
             Resized += (s, e) =>
             {
-                _applicationsPanel.Width = Width - 10;
-                _applicationsPanel.Height = Height - 10;
+                _applicationsFlowPanel.Width = Width - 10;
+                _applicationsFlowPanel.Height = Height - 10;
             };
-
-            foreach (var application in _viewModel.GroupApplications)
-            {
-                // TODO: We should probably add the Group to each application?
-                var panel = new ApplicationListRowPanel(application, _viewModel.MyGroup)
-                {
-                    Parent = _applicationsPanel
-                };
-                _applicationsPanel.Resized += (s, e) =>
-                {
-                    panel.Width = _applicationsPanel.Width - 10;
-                };
-                _applicationPanels[application.Id] = panel;
-            }
-
-            _applicationsPanel.SortChildren<ApplicationListRowPanel>((a, b) =>
-            {
-                return -a.HasEnoughKillProof().CompareTo(b.HasEnoughKillProof());
-            });
         }
 
         private void OnGroupApplicationsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -114,13 +96,18 @@ namespace Gw2Lfg
                 {
                     var panel = new ApplicationListRowPanel(application, _viewModel.MyGroup)
                     {
-                        Parent = _applicationsPanel
+                        Parent = _applicationsFlowPanel,
+                        Width = _applicationsFlowPanel.Width - 10,
+                    };
+                    _applicationsFlowPanel.Resized += (s, e) =>
+                    {
+                        panel.Width = _applicationsFlowPanel.Width - 10;
                     };
                     _applicationPanels[application.Id] = panel;
                 }
             }
 
-            _applicationsPanel.SortChildren<ApplicationListRowPanel>((a, b) =>
+            _applicationsFlowPanel.SortChildren<ApplicationListRowPanel>((a, b) =>
             {
                 return -a.HasEnoughKillProof().CompareTo(b.HasEnoughKillProof());
             });
