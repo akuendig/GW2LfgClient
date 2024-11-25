@@ -10,12 +10,12 @@ namespace Gw2Lfg
 {
     public class ApplicationListRowPanel : Panel
     {
-        public Proto.Group Group { get; set; }
+        private readonly Proto.Group _group;
         public Proto.GroupApplication Application { get; set; }
 
         public ApplicationListRowPanel(Proto.GroupApplication application, Proto.Group group)
         {
-            Group = group;
+            _group = group;
             Application = application;
             Height = 50;
             ShowBorder = true;
@@ -107,16 +107,16 @@ namespace Gw2Lfg
 
         public bool HasEnoughKillProof()
         {
-            if (Group == null || Group.KillProofMinimum == 0 || Group.KillProofId == Proto.KillProofId.KpUnknown)
+            if (_group == null || _group.KillProofMinimum == 0 || _group.KillProofId == Proto.KillProofId.KpUnknown)
             {
                 return true;
             }
 
-            return Group.KillProofId switch
+            return _group.KillProofId switch
             {
-                Proto.KillProofId.KpLi => Application.KillProof.Li >= Group.KillProofMinimum,
-                Proto.KillProofId.KpUfe => Application.KillProof.Ufe >= Group.KillProofMinimum,
-                Proto.KillProofId.KpBskp => Application.KillProof.Bskp >= Group.KillProofMinimum,
+                Proto.KillProofId.KpLi => Application.KillProof.Li >= _group.KillProofMinimum,
+                Proto.KillProofId.KpUfe => Application.KillProof.Ufe >= _group.KillProofMinimum,
+                Proto.KillProofId.KpBskp => Application.KillProof.Bskp >= _group.KillProofMinimum,
                 _ => false,
             };
         }
