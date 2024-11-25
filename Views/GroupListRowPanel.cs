@@ -24,19 +24,9 @@ namespace Gw2Lfg
 
             // Update status every 10 seconds
             // TODO: We need this timer because if the user is inactive, the update_time will not be updated
-            _statusUpdateTimer = new Timer(TimeSpan.FromSeconds(10).Milliseconds);
+            _statusUpdateTimer = new Timer(TimeSpan.FromSeconds(10).TotalMilliseconds);
             _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus();
             _statusUpdateTimer.Start();
-            
-            StatusLabel = new Label
-            {
-                Parent = this,
-                Width = Width,
-                Height = 30,
-                VerticalAlignment = VerticalAlignment.Middle,
-                Top = (Height - 30) / 2,
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
-            };
         }
 
         public void UpdateStatus()

@@ -5,7 +5,6 @@ using Blish_HUD.Graphics.UI;
 using System;
 using System.Threading.Tasks;
 using Blish_HUD;
-using System.Net.Http;
 using System.Threading;
 
 namespace Gw2Lfg
@@ -14,10 +13,7 @@ namespace Gw2Lfg
     {
         private const int PADDING = 10;
         private bool _disposed;
-        private CancellationTokenSource _cancellationTokenSource;
-        private HttpClient _httpClient;
-        private SimpleGrpcWebClient _grpcClient = null!;
-        private LfgClient _lfgClient = null!;
+        private readonly LfgClient _lfgClient;
         private readonly LfgViewModel _viewModel;
 
         private ApplicationListPanel? _applicationsList;
@@ -31,17 +27,11 @@ namespace Gw2Lfg
         private Panel? _mainContentPanel;
         private bool _hasApiKey = false;
 
-        public LfgView(HttpClient httpClient, LfgViewModel viewModel)
+        public LfgView(LfgClient lfgClient, LfgViewModel viewModel)
         {
-            _cancellationTokenSource = new CancellationTokenSource();
-            _httpClient = httpClient;
+            _lfgClient = lfgClient;
             _viewModel = viewModel;
             _hasApiKey = !string.IsNullOrEmpty(viewModel.ApiKey);
-
-            if (_hasApiKey)
-            {
-                ReinitializeClients();
-            }
         }
 
         protected override void Build(Container buildPanel)
@@ -64,19 +54,9 @@ namespace Gw2Lfg
             }.Build();
 
             BuildMainLayout(_mainContentPanel);
-            ReinitializeClients();
             RegisterEventHandlers();
 
             UpdateVisibility();
-        }
-
-        private void ReinitializeClients()
-        {
-            _cancellationTokenSource?.Cancel();
-            _cancellationTokenSource = new CancellationTokenSource();
-            _grpcClient = new SimpleGrpcWebClient(
-                _httpClient, _viewModel.ApiKey, _cancellationTokenSource.Token);
-            _lfgClient = new LfgClient(_grpcClient);
         }
 
         private void UpdateVisibility()
@@ -383,7 +363,6 @@ namespace Gw2Lfg
         private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             _hasApiKey = !string.IsNullOrEmpty(_viewModel.ApiKey);
-            ReinitializeClients();
             UpdateVisibility();
         }
 

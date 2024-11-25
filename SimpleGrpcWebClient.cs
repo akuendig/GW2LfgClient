@@ -13,9 +13,10 @@ namespace Gw2Lfg
 {
     public class SimpleGrpcWebClient
     {
-        private readonly string _apiKey;
         private readonly HttpClient _httpClient;
         private readonly CancellationToken _cancellationToken;
+        private readonly object _apiKeyLock = new();
+        private string _apiKey;
         private const string GrpcWebFormat = "application/grpc-web+proto";
         private const string GrpcStatusHeader = "grpc-status";
         private const string GrpcMessageHeader = "grpc-message";
@@ -25,6 +26,14 @@ namespace Gw2Lfg
             _httpClient = httpClient;
             _apiKey = apiKey;
             _cancellationToken = cancellationToken;
+        }
+
+        public void SetApiKey(string apiKey)
+        {
+            lock (_apiKeyLock)
+            {
+                _apiKey = apiKey;
+            }
         }
 
         private void HandleGrpcError(HttpResponseMessage response)
@@ -219,7 +228,10 @@ namespace Gw2Lfg
             // Add required headers
             httpRequest.Headers.Add("x-grpc-web", "1");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(GrpcWebFormat));
-            httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            lock (_apiKeyLock)
+            {
+                httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+            }
             httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GrpcWebFormat);
 

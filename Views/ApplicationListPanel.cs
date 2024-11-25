@@ -55,6 +55,11 @@ namespace Gw2Lfg
                 Left = 5,
                 CanScroll = true,
             };
+            Resized += (s, e) =>
+            {
+                _applicationsPanel.Width = Width - 10;
+                _applicationsPanel.Height = Height - 10;
+            };
 
             foreach (var application in _viewModel.GroupApplications)
             {
@@ -124,10 +129,9 @@ namespace Gw2Lfg
             {
                 Parent = _applicationsPanel,
                 Height = 50,
-                Width = Width - 10,
+                Width = _applicationsPanel.Width - 10,
                 ShowBorder = true,
             };
-
             _applicationsPanel.Resized += (s, e) =>
             {
                 panel.Width = Width - 10;

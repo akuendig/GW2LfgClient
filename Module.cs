@@ -9,10 +9,8 @@ using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
-using System.Linq;
 using System.Net.Http;
 using System.Threading;
-using System.ComponentModel;
 
 namespace Gw2Lfg
 {
@@ -34,12 +32,16 @@ namespace Gw2Lfg
             // Set high timeout for server streaming requests.
             Timeout = TimeSpan.FromHours(1),
         };
+        private readonly SimpleGrpcWebClient _grpcClient;
+        private readonly LfgClient _lfgClient;
         private LfgView _lfgView;
         private readonly LfgViewModel _viewModel;
 
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
         {
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, "", CancellationToken.None);
+            _lfgClient = new LfgClient(_grpcClient);
             _viewModel = new LfgViewModel(_httpClient);
         }
 
@@ -151,6 +153,7 @@ namespace Gw2Lfg
                 {
                     var subtoken = await Gw2ApiManager.Gw2ApiClient.V2.CreateSubtoken.WithPermissions(
                         [Gw2Sharp.WebApi.V2.Models.TokenPermission.Account]).GetAsync();
+                    _grpcClient.SetApiKey(subtoken.Subtoken);
                     _viewModel.ApiKey = subtoken.Subtoken;
                 }
                 catch (Exception ex)
@@ -164,7 +167,7 @@ namespace Gw2Lfg
         {
             if (_lfgView == null)
             {
-                _lfgView = new LfgView(_httpClient, _viewModel);
+                _lfgView = new LfgView(_lfgClient, _viewModel);
                 _lfgWindow.Show(_lfgView);
             }
             else

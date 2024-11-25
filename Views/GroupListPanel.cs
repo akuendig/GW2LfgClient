@@ -46,7 +46,7 @@ namespace Gw2Lfg
                 Top = PADDING,
             };
 
-            this.Resized += (s, e) =>
+            Resized += (s, e) =>
             {
                 container.Width = Width - (PADDING * 2);
                 container.Height = Height - PADDING;
