@@ -389,7 +389,6 @@ namespace Gw2Lfg
                 try
                 {
                     await ApplyToGroupAsync(group.Id);
-                    ScreenNotification.ShowNotification("Successfully applied", ScreenNotification.NotificationType.Info);
                 }
                 finally
                 {
@@ -468,6 +467,10 @@ namespace Gw2Lfg
             catch (Exception ex)
             {
                 Notifications.ShowError($"Failed to apply to group: {ex.Message}");
+            }
+            finally
+            {
+                Notifications.ShowInfo("Application submitted");
             }
         }
     }

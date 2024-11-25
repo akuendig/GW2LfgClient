@@ -5,5 +5,9 @@ namespace Gw2Lfg {
         public static void ShowError(string message) {
             ScreenNotification.ShowNotification(message, ScreenNotification.NotificationType.Error);
         }
+
+        public static void ShowInfo(string message) {
+            ScreenNotification.ShowNotification(message, ScreenNotification.NotificationType.Info);
+        }
     }
 }
