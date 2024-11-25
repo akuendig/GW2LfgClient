@@ -2,15 +2,11 @@
 
 using Blish_HUD.Controls;
 using Blish_HUD.Graphics.UI;
-using Microsoft.Xna.Framework;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
-using System.Linq;
 using Blish_HUD;
 using System.Net.Http;
 using System.Threading;
-using Blish_HUD.Content;
 
 namespace Gw2Lfg
 {
@@ -22,13 +18,9 @@ namespace Gw2Lfg
         private HttpClient _httpClient;
         private SimpleGrpcWebClient _grpcClient = null!;
         private LfgClient _lfgClient = null!;
-        private readonly Dictionary<string, GroupListRowPanel> _groupPanels = [];
-        private readonly Dictionary<string, ApplicationPanel> _applicationPanels = [];
         private readonly LfgViewModel _viewModel;
 
-        private LoadingSpinner? _groupsLoadingSpinner;
-        private FlowPanel? _applicationsList;
-        private LoadingSpinner? _applicationsLoadingSpinner;
+        private ApplicationListPanel? _applicationsList;
         private Panel? _groupManagementPanel;
         private StandardButton? _createButton;
         private TextBox? _descriptionBox;
@@ -360,16 +352,13 @@ namespace Gw2Lfg
                 applicationsLabel.Width = parent.Width - (PADDING * 2);
             };
 
-            _applicationsList = new FlowPanel
+            _applicationsList = new ApplicationListPanel(_viewModel)
             {
                 Parent = parent,
                 Top = applicationsLabel.Bottom + PADDING,
                 Height = parent.Height - applicationsLabel.Bottom - (PADDING * 2),
                 Width = parent.Width - (PADDING * 2),
                 Left = PADDING,
-                FlowDirection = ControlFlowDirection.TopToBottom,
-                ControlPadding = new Vector2(0, 5),
-                ShowBorder = true,
             };
             parent.Resized += (s, e) =>
             {
@@ -377,58 +366,18 @@ namespace Gw2Lfg
                 _applicationsList.Height = parent.Height - applicationsLabel.Bottom - (PADDING * 2);
                 _applicationsList.Width = parent.Width - (PADDING * 2);
             };
-
-            _applicationPanels.Clear();
-            _applicationsLoadingSpinner = new LoadingSpinner
-            {
-                Parent = parent,
-                Location = new Point(
-                    _applicationsList.Left + (_applicationsList.Width - 64) / 2,
-                    _applicationsList.Top + (_applicationsList.Height - 64) / 2
-                ),
-                Visible = _viewModel.IsLoadingApplications,
-                ZIndex = _applicationsList.ZIndex + 1,
-            };
-            parent.Resized += (s, e) =>
-            {
-                _applicationsLoadingSpinner.Location = new Point(
-                    _applicationsList.Left + (_applicationsList.Width - 64) / 2,
-                    _applicationsList.Top + (_applicationsList.Height - 64) / 2
-                );
-            };
-
-            foreach (var application in _viewModel.GroupApplications)
-            {
-                CreateApplicationPanel(_applicationsList, application);
-            }
-
-            _applicationsList.SortChildren<ApplicationPanel>((a, b) =>
-            {
-                var appA = a;
-                var appB = b;
-                return -HasEnoughKillProof(appA.Application.KillProof, _viewModel.MyGroup)
-                    .CompareTo(HasEnoughKillProof(appB.Application.KillProof, _viewModel.MyGroup));
-            });
         }
 
         private void RegisterEventHandlers()
         {
             _viewModel.ApiKeyChanged += OnApiKeyChanged;
             _viewModel.MyGroupChanged += OnMyGroupChanged;
-            _viewModel.GroupApplicationsChanged += OnGroupApplicationsChanged;
-            _viewModel.VisibleChanged += OnVisibleChanged;
-            _viewModel.IsLoadingGroupsChanged += OnIsGroupsLoadingChanged;
-            _viewModel.IsLoadingApplicationsChanged += OnIsApplicationsLoadingChanged;
         }
 
         private void UnregisterEventHandlers()
         {
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
             _viewModel.MyGroupChanged -= OnMyGroupChanged;
-            _viewModel.GroupApplicationsChanged -= OnGroupApplicationsChanged;
-            _viewModel.VisibleChanged -= OnVisibleChanged;
-            _viewModel.IsLoadingGroupsChanged -= OnIsGroupsLoadingChanged;
-            _viewModel.IsLoadingApplicationsChanged -= OnIsApplicationsLoadingChanged;
         }
 
         private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -441,70 +390,6 @@ namespace Gw2Lfg
         private void OnMyGroupChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             RefreshManagementPanel();
-        }
-
-        private void OnGroupApplicationsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            RefreshApplicationsList();
-        }
-
-        private void OnVisibleChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            // TODO: Enable/Disable heartbeat and refresh logic
-            if (_viewModel.Visible)
-            {
-                RefreshApplicationsList();
-            }
-        }
-
-        private void OnIsGroupsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (_groupsLoadingSpinner == null) return;
-            _groupsLoadingSpinner.Visible = _viewModel.IsLoadingGroups;
-        }
-
-        private void OnIsApplicationsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (_applicationsLoadingSpinner == null) return;
-            _applicationsLoadingSpinner.Visible = _viewModel.IsLoadingApplications;
-        }
-
-        private void RefreshApplicationsList()
-        {
-            if (_viewModel.MyGroup == null)
-            {
-                return;
-            }
-            if (_applicationsList == null) return;
-
-            var currentApplications = new HashSet<string>(_applicationPanels.Keys);
-            var newApplications = new HashSet<string>(_viewModel.GroupApplications.Select(a => a.Id));
-
-            foreach (var applicationId in currentApplications.Except(newApplications))
-            {
-                if (_applicationPanels.TryGetValue(applicationId, out var panel))
-                {
-                    panel.Dispose();
-                    _applicationPanels.Remove(applicationId);
-                }
-            }
-
-            foreach (var application in _viewModel.GroupApplications)
-            {
-                if (!_applicationPanels.ContainsKey(application.Id))
-                {
-                    var panel = CreateApplicationPanel(_applicationsList, application);
-                    _applicationPanels[application.Id] = panel;
-                }
-            }
-
-            _applicationsList.SortChildren<ApplicationPanel>((a, b) =>
-            {
-                var appA = a;
-                var appB = b;
-                return -HasEnoughKillProof(appA.Application.KillProof, _viewModel.MyGroup)
-                    .CompareTo(HasEnoughKillProof(appB.Application.KillProof, _viewModel.MyGroup));
-            });
         }
 
         private void PopulateKillProofDropdown()
@@ -523,153 +408,7 @@ namespace Gw2Lfg
             if (_disposed) return;
             _disposed = true;
 
-            foreach (var panel in _groupPanels.Values)
-            {
-                panel.Dispose();
-            }
-            _groupPanels.Clear();
-
-            foreach (var panel in _applicationPanels.Values)
-            {
-                panel.Dispose();
-            }
-            _applicationPanels.Clear();
-
             UnregisterEventHandlers();
-        }
-
-        private static string FormatKillProofDetails(Proto.KillProof kp)
-        {
-            if (kp == null)
-            {
-                return "No KillProof.me data available";
-            }
-            return $"LI: {kp.Li}     UFE: {kp.Ufe}     BSKP: {kp.Bskp} \n" +
-                   $"W1: {kp.W1}     W2:  {kp.W2}\n" +
-                   $"W3: {kp.W3}     W4:  {kp.W4}\n" +
-                   $"W5: {kp.W5}     W6:  {kp.W6}\n" +
-                   $"W7: {kp.W7}     W8:  {kp.W8}";
-        }
-
-        private static bool HasEnoughKillProof(Proto.KillProof kp, Proto.Group? group)
-        {
-            if (group == null || group.KillProofMinimum == 0 || group.KillProofId == Proto.KillProofId.KpUnknown)
-            {
-                return true;
-            }
-
-            switch (group.KillProofId)
-            {
-                case Proto.KillProofId.KpLi:
-                    return kp.Li >= group.KillProofMinimum;
-                case Proto.KillProofId.KpUfe:
-                    return kp.Ufe >= group.KillProofMinimum;
-                case Proto.KillProofId.KpBskp:
-                    return kp.Bskp >= group.KillProofMinimum;
-                default:
-                    return false;
-            }
-        }
-
-        private ApplicationPanel CreateApplicationPanel(FlowPanel parent, Proto.GroupApplication application)
-        {
-            var panel = new ApplicationPanel(application)
-            {
-                Parent = parent,
-                Height = 50,
-                Width = parent.Width - PADDING,
-                ShowBorder = true,
-            };
-            parent.Resized += (s, e) =>
-            {
-                panel.Width = parent.Width - PADDING;
-            };
-
-            var applicantInfo = new Panel
-            {
-                Parent = panel,
-                Left = PADDING,
-                HeightSizingMode = SizingMode.Fill,
-                Width = panel.Width - 120
-            };
-            panel.Resized += (s, e) =>
-            {
-                applicantInfo.Width = panel.Width - 120;
-            };
-
-            var nameLabel = new Label
-            {
-                Parent = applicantInfo,
-                Text = application.AccountName,
-                Height = 30,
-                Top = (applicantInfo.Height - 30) / 2,
-                Width = applicantInfo.Width,
-                BasicTooltipText = FormatKillProofDetails(application.KillProof),
-                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
-            };
-            applicantInfo.Resized += (s, e) =>
-            {
-                nameLabel.Top = (applicantInfo.Height - 30) / 2;
-                nameLabel.Width = applicantInfo.Width;
-            };
-
-            var buttonPanel = new Panel
-            {
-                Parent = panel,
-                Left = panel.Width - 110,
-                Width = 100,
-                HeightSizingMode = SizingMode.Fill,
-            };
-            panel.Resized += (s, e) =>
-            {
-                buttonPanel.Left = panel.Width - 110;
-            };
-
-            var inviteButton = new StandardButton
-            {
-                Parent = buttonPanel,
-                Text = "Invite",
-                Width = 100,
-                Height = 30,
-                Top = (buttonPanel.Height - 30) / 2
-            };
-            buttonPanel.Resized += (s, e) =>
-            {
-                inviteButton.Top = (buttonPanel.Height - 30) / 2;
-            };
-
-            inviteButton.Click += (s, e) =>
-            {
-                try
-                {
-                    GameService.GameIntegration.Chat.Send($"/sqinvite {application.AccountName}");
-                }
-                catch (Exception ex)
-                {
-                    Notifications.ShowError($"Failed to invite player: {ex.Message}");
-                }
-            };
-
-            var kpWarning = new Image(AsyncTexture2D.FromAssetId(107050))// Flag icon
-            {
-                Parent = panel,
-                Size = new Point(30, 30),
-                Right = buttonPanel.Left - PADDING,
-                Top = (panel.Height - 40) / 2,
-                Visible = !HasEnoughKillProof(application.KillProof, _viewModel.MyGroup!),
-                BasicTooltipText = "Insufficient KillProof",
-            };
-            buttonPanel.Moved += (s, e) =>
-            {
-                kpWarning.Right = buttonPanel.Left - PADDING;
-            };
-            panel.Resized += (s, e) =>
-            {
-                kpWarning.Right = buttonPanel.Left - PADDING;
-                kpWarning.Top = (panel.Height - 40) / 2;
-            };
-
-            return panel;
         }
 
         private async Task CreateGroupAsync(string description, string minKpText, string kpIdText)

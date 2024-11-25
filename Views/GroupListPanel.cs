@@ -410,7 +410,7 @@ namespace Gw2Lfg
             var titleLabel = (Label)infoPanel.Children.First();
             titleLabel.Text = group.Title;
 
-            var kpRequirement = KillProof.FormatId(group.KillProofId);
+            var kpRequirement = FormatKillProofRequirement(group);
             if (infoPanel.Children.Count > 1)
             {
                 if (string.IsNullOrEmpty(kpRequirement))
