@@ -6,15 +6,10 @@ using System.Threading;
 
 namespace Gw2Lfg
 {
-    public class LfgClient
+    public class LfgClient(SimpleGrpcWebClient client)
     {
         private static readonly Logger Logger = Logger.GetLogger<Gw2LfgModule>();
-        private readonly SimpleGrpcWebClient _client;
-
-        public LfgClient(SimpleGrpcWebClient client)
-        {
-            _client = client;
-        }
+        private readonly SimpleGrpcWebClient _client = client;
 
         public async Task<CreateGroupResponse> CreateGroup(
             string title, uint KillProofMinimum, KillProofId killProofId,

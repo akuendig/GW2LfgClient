@@ -11,22 +11,15 @@ using System.Runtime.CompilerServices;
 
 namespace Gw2Lfg
 {
-    public class SimpleGrpcWebClient
+    public class SimpleGrpcWebClient(HttpClient httpClient, string apiKey, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _httpClient;
-        private readonly CancellationToken _cancellationToken;
+        private readonly HttpClient _httpClient = httpClient;
+        private readonly CancellationToken _cancellationToken = cancellationToken;
         private readonly object _apiKeyLock = new();
-        private string _apiKey;
+        private string _apiKey = apiKey;
         private const string GrpcWebFormat = "application/grpc-web+proto";
         private const string GrpcStatusHeader = "grpc-status";
         private const string GrpcMessageHeader = "grpc-message";
-
-        public SimpleGrpcWebClient(HttpClient httpClient, string apiKey, CancellationToken cancellationToken)
-        {
-            _httpClient = httpClient;
-            _apiKey = apiKey;
-            _cancellationToken = cancellationToken;
-        }
 
         public void SetApiKey(string apiKey)
         {

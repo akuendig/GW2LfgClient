@@ -3,6 +3,7 @@
 using Blish_HUD.Controls;
 using Microsoft.Xna.Framework;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 
 namespace Gw2Lfg
@@ -27,11 +28,11 @@ namespace Gw2Lfg
 
             HeightSizingMode = SizingMode.Fill;
 
-            BuildLayout();
+            BuildLayout(viewModel.State);
             RegisterEvents();
         }
 
-        private void BuildLayout()
+        private void BuildLayout(LfgModel state)
         {
             var container = new Panel
             {
@@ -49,8 +50,8 @@ namespace Gw2Lfg
             };
 
             BuildFilterControls(container);
-            BuildGroupsList(container);
-            UpdateGroupsList();
+            BuildGroupsList(container, state.IsLoadingGroups);
+            UpdateGroupsList(state.Groups, state.AccountName);
         }
 
         private void BuildFilterControls(Panel parent)
@@ -104,7 +105,7 @@ namespace Gw2Lfg
             _contentTypeDropdown.ValueChanged += (s, e) => ApplyFilters();
         }
 
-        private void BuildGroupsList(Panel parent)
+        private void BuildGroupsList(Panel parent, bool isLoadingGroups)
         {
             _groupsFlowPanel = new FlowPanel
             {
@@ -131,7 +132,7 @@ namespace Gw2Lfg
                     (parent.Width - 64) / 2,
                     (parent.Height - 64) / 2
                 ),
-                Visible = _viewModel.IsLoadingGroups,
+                Visible = isLoadingGroups,
                 ZIndex = _groupsFlowPanel.ZIndex + 1,
             };
 
@@ -164,16 +165,16 @@ namespace Gw2Lfg
             base.DisposeControl();
         }
 
-        private void OnGroupsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnGroupsChanged(object sender, LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.Group>> e)
         {
-            UpdateGroupsList();
+            UpdateGroupsList(e.NewState.Groups, e.NewState.AccountName);
         }
 
-        private void OnIsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnIsLoadingChanged(object sender, LfgViewModelPropertyChangedEventArgs<bool> e)
         {
             if (_groupsLoadingSpinner != null)
             {
-                _groupsLoadingSpinner.Visible = _viewModel.IsLoadingGroups;
+                _groupsLoadingSpinner.Visible = e.NewValue;
             }
         }
 
@@ -187,10 +188,10 @@ namespace Gw2Lfg
             _contentTypeDropdown.SelectedItem = "All";
         }
 
-        private void UpdateGroupsList()
+        private void UpdateGroupsList(IEnumerable<Proto.Group> groups, string accountName)
         {
             var currentGroups = new HashSet<string>(_groupPanels.Keys);
-            var newGroups = new HashSet<string>(_viewModel.Groups.Select(g => g.Id));
+            var newGroups = new HashSet<string>(groups.Select(g => g.Id));
 
             // Remove panels for groups that no longer exist
             foreach (var groupId in currentGroups.Except(newGroups))
@@ -203,11 +204,11 @@ namespace Gw2Lfg
             }
 
             // Add or update panels for current groups
-            foreach (var group in _viewModel.Groups)
+            foreach (var group in groups)
             {
                 if (_groupPanels.TryGetValue(group.Id, out var existingPanel))
                 {
-                    existingPanel.Update(group);
+                    existingPanel.Update(accountName, group);
                 }
                 else
                 {

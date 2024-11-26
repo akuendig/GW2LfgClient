@@ -29,25 +29,25 @@ namespace Gw2Lfg
             
             _viewModel.MyGroupChanged += OnMyGroupChanged;
             
-            RefreshContent();
+            RefreshContent(_viewModel.MyGroup);
         }
 
-        private void OnMyGroupChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnMyGroupChanged(object sender, LfgViewModelPropertyChangedEventArgs<Proto.Group?> e)
         {
-            RefreshContent();
+            RefreshContent(e.NewValue);
         }
 
-        private void RefreshContent()
+        private void RefreshContent(Proto.Group? group)
         {
             ClearChildren();
 
-            if (_viewModel.MyGroup == null)
+            if (group == null)
             {
                 BuildCreateGroupPanel();
             }
             else
             {
-                BuildGroupManagementPanel();
+                BuildGroupManagementPanel(group);
             }
         }
 
@@ -61,7 +61,7 @@ namespace Gw2Lfg
                 Title = "Create Group",
             };
 
-            BuildGroupInputs(panel);
+            BuildGroupInputs(panel, null);
 
             _createButton = new StandardButton
             {
@@ -96,7 +96,7 @@ namespace Gw2Lfg
             };
         }
 
-        private void BuildGroupManagementPanel()
+        private void BuildGroupManagementPanel(Proto.Group group)
         {
             var panel = new Panel
             {
@@ -106,7 +106,7 @@ namespace Gw2Lfg
                 Title = "Manage Group",
             };
 
-            BuildGroupInputs(panel);
+            BuildGroupInputs(panel, group);
 
             var buttonPanel = new Panel
             {
@@ -147,7 +147,7 @@ namespace Gw2Lfg
                 try
                 {
                     await UpdateGroupAsync(
-                                   _viewModel?.MyGroup?.Id ?? "",
+                                   group.Id,
                                    _descriptionBox?.Text ?? "",
                                    _requirementsNumber?.Text ?? "",
                                    _requirementsDropdown?.SelectedItem ?? ""
@@ -165,7 +165,7 @@ namespace Gw2Lfg
                 closeButton.Enabled = false;
                 try
                 {
-                    await CloseGroupAsync(_viewModel?.MyGroup?.Id ?? "");
+                    await CloseGroupAsync(group.Id);
                 }
                 finally
                 {
@@ -177,7 +177,7 @@ namespace Gw2Lfg
             BuildApplicationsList(panel, buttonPanel.Bottom + PADDING);
         }
 
-        private void BuildGroupInputs(Panel parent)
+        private void BuildGroupInputs(Panel parent, Proto.Group? group)
         {
             _descriptionBox = new TextBox
             {
@@ -187,7 +187,7 @@ namespace Gw2Lfg
                 Left = PADDING,
                 Top = PADDING,
                 PlaceholderText = "Group Description",
-                Text = _viewModel.MyGroup?.Title ?? "",
+                Text = group?.Title ?? "",
             };
             _requirementsPanel = new Panel
             {
@@ -219,7 +219,7 @@ namespace Gw2Lfg
                 Height = 30,
                 Left = _requirementsPanel.Width - 150,
                 PlaceholderText = "0",
-                Text = _viewModel.MyGroup?.KillProofMinimum.ToString() ?? "",
+                Text = group?.KillProofMinimum.ToString() ?? "",
             };
             _requirementsPanel.Resized += (s, e) =>
             {
@@ -238,7 +238,7 @@ namespace Gw2Lfg
                 _requirementsDropdown.Left = _requirementsPanel.Width - 90;
             };
 
-            PopulateKillProofDropdown();
+            PopulateKillProofDropdown(group);
         }
 
         private void BuildApplicationsList(Panel parent, int topOffset)
@@ -273,14 +273,14 @@ namespace Gw2Lfg
             };
         }
 
-        private void PopulateKillProofDropdown()
+        private void PopulateKillProofDropdown(Proto.Group? myGroup)
         {
             _requirementsDropdown!.Items.Add("");
             _requirementsDropdown.Items.Add("LI");
             _requirementsDropdown.Items.Add("UFE");
             _requirementsDropdown.Items.Add("BSKP");
             _requirementsDropdown.SelectedItem = KillProof.FormatId(
-                _viewModel.MyGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
+                myGroup?.KillProofId ?? Proto.KillProofId.KpUnknown
             );
         }
 

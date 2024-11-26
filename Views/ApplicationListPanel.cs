@@ -3,6 +3,7 @@
 using Blish_HUD.Controls;
 using Microsoft.Xna.Framework;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 
 namespace Gw2Lfg
@@ -60,15 +61,15 @@ namespace Gw2Lfg
             };
         }
 
-        private void OnGroupApplicationsChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnGroupApplicationsChanged(object sender, LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.GroupApplication>> e)
         {
             RefreshApplicationsList();
         }
 
-        private void OnIsApplicationsLoadingChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnIsApplicationsLoadingChanged(object sender, LfgViewModelPropertyChangedEventArgs<bool> e)
         {
             if (_applicationsLoadingSpinner == null) return;
-            _applicationsLoadingSpinner.Visible = _viewModel.IsLoadingApplications;
+            _applicationsLoadingSpinner.Visible = e.NewValue;
         }
 
         private void RefreshApplicationsList()

@@ -9,23 +9,16 @@ using System.Threading;
 
 namespace Gw2Lfg
 {
-    public class LfgView : View, IDisposable
+    public class LfgView(LfgClient lfgClient, LfgViewModel viewModel) : View, IDisposable
     {
         private const int PADDING = 10;
         private bool _disposed;
-        private readonly LfgClient _lfgClient;
-        private readonly LfgViewModel _viewModel;
+        private readonly LfgClient _lfgClient = lfgClient;
+        private readonly LfgViewModel _viewModel = viewModel;
 
         private LandingView? _landingView;
         private Panel? _mainContentPanel;
-        private bool _hasApiKey = false;
-
-        public LfgView(LfgClient lfgClient, LfgViewModel viewModel)
-        {
-            _lfgClient = lfgClient;
-            _viewModel = viewModel;
-            _hasApiKey = !string.IsNullOrEmpty(viewModel.ApiKey);
-        }
+        private bool _hasApiKey = !string.IsNullOrEmpty(viewModel.ApiKey);
 
         protected override void Build(Container buildPanel)
         {
@@ -93,9 +86,9 @@ namespace Gw2Lfg
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
         }
 
-        private void OnApiKeyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnApiKeyChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
-            _hasApiKey = !string.IsNullOrEmpty(_viewModel.ApiKey);
+            _hasApiKey = !string.IsNullOrEmpty(e.NewValue);
             UpdateVisibility();
         }
 

@@ -16,14 +16,12 @@ namespace Gw2Lfg
         private readonly System.Timers.Timer _statusUpdateTimer;
 
         public Proto.Group Group { get; private set; }
-        private readonly LfgViewModel _viewModel;
         private readonly LfgClient _lfgClient;
         private Label _statusLabel;
 
         public GroupListRowPanel(Proto.Group group, LfgViewModel viewModel, LfgClient lfgClient)
         {
             Group = group;
-            _viewModel = viewModel;
             _lfgClient = lfgClient;
 
             // Update status every 10 seconds
@@ -31,10 +29,10 @@ namespace Gw2Lfg
             _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus();
             _statusUpdateTimer.Start();
 
-            BuildLayout();
+            BuildLayout(viewModel.AccountName);
         }
 
-        private void BuildLayout()
+        private void BuildLayout(string accountName)
         {
             HeightSizingMode = SizingMode.AutoSize;
             ShowBorder = true;
@@ -129,7 +127,7 @@ namespace Gw2Lfg
                 buttonPanel.Left = Width - 110;
             };
 
-            var isYourGroup = Group.CreatorId == _viewModel.AccountName;
+            var isYourGroup = Group.CreatorId == accountName;
             var applyButton = new StandardButton
             {
                 Parent = buttonPanel,
@@ -176,7 +174,7 @@ namespace Gw2Lfg
             };
         }
 
-        public void Update(Proto.Group updatedGroup)
+        public void Update(string accountName, Proto.Group updatedGroup)
         {
             Group = updatedGroup;
             var infoPanel = (Panel)Children.First();
@@ -215,7 +213,7 @@ namespace Gw2Lfg
             applyButton.Top = (buttonPanel.Height - 30) / 2;
             var myGroupLabel = buttonPanel.GetChildrenOfType<Label>().First();
             myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
-            var isYourGroup = updatedGroup.CreatorId == _viewModel.AccountName;
+            var isYourGroup = updatedGroup.CreatorId == accountName;
             applyButton.Visible = !isYourGroup;
             myGroupLabel.Visible = isYourGroup;
 

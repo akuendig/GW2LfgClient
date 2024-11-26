@@ -105,7 +105,7 @@ namespace Gw2Lfg
 
             _viewModel.AccountNameChanged += (sender, args) =>
             {
-                _lfgWindow.Subtitle = _viewModel.AccountName;
+                _lfgWindow.Subtitle = args.NewValue;
             };
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
