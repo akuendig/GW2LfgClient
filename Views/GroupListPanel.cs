@@ -19,7 +19,6 @@ namespace Gw2Lfg
         private FlowPanel? _groupsFlowPanel;
         private LoadingSpinner? _groupsLoadingSpinner;
         private TextBox? _searchBox;
-        private Dropdown? _contentTypeDropdown;
 
         public GroupListPanel(LfgViewModel viewModel, LfgClient lfgClient)
         {
@@ -63,29 +62,19 @@ namespace Gw2Lfg
                 WidthSizingMode = SizingMode.Fill,
             };
 
-            _contentTypeDropdown = new Dropdown
-            {
-                Parent = filterPanel,
-                Top = 5,
-                Height = 30,
-                Width = 120,
-            };
-
-            PopulateContentTypeDropdown();
-
             _searchBox = new TextBox
             {
                 Parent = filterPanel,
-                Left = _contentTypeDropdown.Right + PADDING,
+                Left = PADDING,
                 Top = 5,
                 Height = 30,
-                Width = filterPanel.Width - _contentTypeDropdown.Right - (PADDING * 2),
+                Width = filterPanel.Width - (PADDING * 2),
                 PlaceholderText = "Search groups...",
             };
 
             filterPanel.Resized += (s, e) =>
             {
-                _searchBox.Width = filterPanel.Width - _contentTypeDropdown.Right - (PADDING * 2);
+                _searchBox.Width = filterPanel.Width - (PADDING * 2);
             };
 
             // Debounce search to avoid excessive updates
@@ -101,8 +90,6 @@ namespace Gw2Lfg
                 debounceTimer.Stop();
                 debounceTimer.Start();
             };
-
-            _contentTypeDropdown.ValueChanged += (s, e) => ApplyFilters();
         }
 
         private void BuildGroupsList(Panel parent, bool isLoadingGroups)
@@ -184,16 +171,6 @@ namespace Gw2Lfg
             }
         }
 
-        private void PopulateContentTypeDropdown()
-        {
-            _contentTypeDropdown!.Items.Add("All");
-            _contentTypeDropdown.Items.Add("Fractals");
-            _contentTypeDropdown.Items.Add("Raids");
-            _contentTypeDropdown.Items.Add("Strike Missions");
-            _contentTypeDropdown.Items.Add("Open World");
-            _contentTypeDropdown.SelectedItem = "All";
-        }
-
         private void UpdateGroupsList(
             IEnumerable<Proto.Group> groups, string accountName, ImmutableArray<Proto.GroupApplication> myApplications)
         {
@@ -237,9 +214,8 @@ namespace Gw2Lfg
 
         private void ApplyFilters()
         {
-            if (_searchBox == null || _contentTypeDropdown == null || _groupsFlowPanel == null) return;
+            if (_searchBox == null || _groupsFlowPanel == null) return;
             var searchText = _searchBox.Text.Trim().ToLower();
-            var contentType = _contentTypeDropdown.SelectedItem;
 
             foreach (var panel in _groupPanels.Values)
             {
