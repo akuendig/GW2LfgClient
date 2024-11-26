@@ -22,6 +22,7 @@ namespace Gw2Lfg
         ImmutableArray<Proto.Group> Groups,
         Proto.Group? MyGroup,
         ImmutableArray<Proto.GroupApplication> GroupApplications,
+        ImmutableArray<Proto.GroupApplication> MyApplications,
         bool Visible,
         bool IsLoadingGroups,
         bool IsLoadingApplications
@@ -35,7 +36,7 @@ namespace Gw2Lfg
     {
         private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
         private readonly object _stateLock = new();
-        private LfgModel _state = new("", "", ImmutableArray<Proto.Group>.Empty, null, ImmutableArray<Proto.GroupApplication>.Empty, false, false, false);
+        private LfgModel _state = new("", "", ImmutableArray<Proto.Group>.Empty, null, ImmutableArray<Proto.GroupApplication>.Empty, ImmutableArray<Proto.GroupApplication>.Empty, false, false, false);
         private readonly SynchronizationContext _synchronizationContext;
         private bool _disposed;
 
@@ -45,6 +46,7 @@ namespace Gw2Lfg
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.Group>>>? GroupsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<Proto.Group?>>? MyGroupChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.GroupApplication>>>? GroupApplicationsChanged;
+        public event EventHandler<LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.GroupApplication>>>? MyApplicationsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? VisibleChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingGroupsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingApplicationsChanged;
@@ -79,6 +81,7 @@ namespace Gw2Lfg
                 nameof(Groups) => GroupsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
                 nameof(MyGroup) => MyGroupChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
                 nameof(GroupApplications) => GroupApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
+                nameof(MyApplications) => MyApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
                 nameof(Visible) => VisibleChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
                 nameof(IsLoadingGroups) => IsLoadingGroupsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
                 nameof(IsLoadingApplications) => IsLoadingApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
@@ -225,6 +228,33 @@ namespace Gw2Lfg
             }
         }
 
+        public ImmutableArray<Proto.GroupApplication> MyApplications
+        {
+            get
+            {
+                lock (_stateLock) return _state.MyApplications;
+            }
+            set
+            {
+                if (value == null) throw new ArgumentNullException(nameof(value));
+
+                LfgModel oldState;
+                LfgModel newState;
+                lock (_stateLock)
+                {
+                    if (!_state.MyApplications.SequenceEqual(value))
+                    {
+                        oldState = _state;
+                        _state = _state with { MyApplications = value };
+                        newState = _state;
+                    }
+                    else return;
+                }
+
+                RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
+            }
+        }
+
         public bool Visible
         {
             get
@@ -329,7 +359,7 @@ namespace Gw2Lfg
             LfgModel newState;
             lock (_stateLock)
             {
-                var old = _state.Groups.FirstOrDefault(g => g.Id != updatedGroup.Id);
+                var old = _state.Groups.FirstOrDefault(g => g.Id == updatedGroup.Id);
                 if (old != null && !old.Equals(updatedGroup))
                 {
                     oldState = _state;
@@ -373,17 +403,32 @@ namespace Gw2Lfg
             LfgModel newState;
             lock (_stateLock)
             {
-                var old = _state.GroupApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
-                if (old != null && !old.Equals(updatedApplication))
+                var oldGroup = _state.GroupApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
+                var oldMy = _state.MyApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
+
+                if ((oldGroup != null && !oldGroup.Equals(updatedApplication)) ||
+                    (oldMy != null && !oldMy.Equals(updatedApplication)))
                 {
                     oldState = _state;
-                    _state = _state with { GroupApplications = _state.GroupApplications.Replace(old, updatedApplication) };
+                    var newGroupApps = oldGroup != null
+                        ? _state.GroupApplications.Replace(oldGroup, updatedApplication)
+                        : _state.GroupApplications;
+                    var newMyApps = oldMy != null
+                        ? _state.MyApplications.Replace(oldMy, updatedApplication)
+                        : _state.MyApplications;
+
+                    _state = _state with
+                    {
+                        GroupApplications = newGroupApps,
+                        MyApplications = newMyApps
+                    };
                     newState = _state;
                 }
                 else return;
             }
 
             RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
+            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
         }
 
         public void RemoveApplication(string applicationId)
@@ -394,17 +439,25 @@ namespace Gw2Lfg
             LfgModel newState;
             lock (_stateLock)
             {
-                var newApplications = _state.GroupApplications.Where(a => a.Id != applicationId).ToImmutableArray();
-                if (newApplications.Length != _state.GroupApplications.Length)
+                var newGroupApplications = _state.GroupApplications.Where(a => a.Id != applicationId).ToImmutableArray();
+                var newMyApplications = _state.MyApplications.Where(a => a.Id != applicationId).ToImmutableArray();
+
+                if (newGroupApplications.Length != _state.GroupApplications.Length ||
+                    newMyApplications.Length != _state.MyApplications.Length)
                 {
                     oldState = _state;
-                    _state = _state with { GroupApplications = newApplications };
+                    _state = _state with
+                    {
+                        GroupApplications = newGroupApplications,
+                        MyApplications = newMyApplications
+                    };
                     newState = _state;
                 }
                 else return;
             }
 
             RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
+            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
         }
 
         public void AddApplication(Proto.GroupApplication newApplication)
@@ -415,16 +468,34 @@ namespace Gw2Lfg
             LfgModel newState;
             lock (_stateLock)
             {
-                if (!_state.GroupApplications.Any(a => a.Id == newApplication.Id))
+                bool shouldAddToGroup =
+                    _state.MyGroup != null &&
+                    _state.MyGroup.Id == newApplication.GroupId &&
+                    !_state.GroupApplications.Any(a => a.Id == newApplication.Id);
+                bool shouldAddToMy = !_state.MyApplications.Any(a => a.Id == newApplication.Id);
+
+                if (shouldAddToGroup || shouldAddToMy)
                 {
                     oldState = _state;
-                    _state = _state with { GroupApplications = _state.GroupApplications.Add(newApplication) };
+                    var newGroupApps = shouldAddToGroup
+                        ? _state.GroupApplications.Add(newApplication)
+                        : _state.GroupApplications;
+                    var newMyApps = shouldAddToMy
+                        ? _state.MyApplications.Add(newApplication)
+                        : _state.MyApplications;
+
+                    _state = _state with
+                    {
+                        GroupApplications = newGroupApps,
+                        MyApplications = newMyApps
+                    };
                     newState = _state;
                 }
                 else return;
             }
 
             RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
+            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
         }
 
         private void UpdateMyGroup()
@@ -449,7 +520,7 @@ namespace Gw2Lfg
         private async Task RefreshGroupsAndSubscribe()
         {
             // TODO: This should probably retry in case the server goes away?
-            if (string.IsNullOrEmpty(ApiKey))
+            if (string.IsNullOrWhiteSpace(ApiKey))
             {
                 return;
             }
@@ -505,7 +576,7 @@ namespace Gw2Lfg
 
         private async Task RefreshApplicationsAndSubscribe()
         {
-            if (string.IsNullOrEmpty(ApiKey) || MyGroup == null)
+            if (string.IsNullOrWhiteSpace(ApiKey) || MyGroup == null)
             {
                 return;
             }
@@ -561,12 +632,33 @@ namespace Gw2Lfg
             }, cancellationToken);
         }
 
+        private async Task RefreshMyApplications()
+        {
+            if (string.IsNullOrWhiteSpace(ApiKey) || string.IsNullOrWhiteSpace(AccountName))
+            {
+                return;
+            }
+            CancellationToken cancellationToken = _applicationsSubCts.Token;
+
+            // TODO: This should probably retry in case the server goes away?
+            try
+            {
+                var initialApplications = await _client.ListMyApplications(AccountName, cancellationToken);
+                MyApplications = initialApplications.Applications.ToImmutableArray();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to load applications");
+            }
+        }
+
         private void OnVisibleChanged(object sender, LfgViewModelPropertyChangedEventArgs<bool> e)
         {
             if (Visible)
             {
                 SendHeartbeats();
                 TrySubscribeGroups();
+                TrySubscribeApplications();
             }
             else
             {
@@ -579,6 +671,7 @@ namespace Gw2Lfg
         private async void OnApiKeyChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
             Connect(ApiKey);
+            SendHeartbeats();
             await TrySubscribeGroups();
             await TrySubscribeApplications();
         }
@@ -625,6 +718,7 @@ namespace Gw2Lfg
             _applicationsSubCts?.Cancel();
             _applicationsSubCts?.Dispose();
             _applicationsSubCts = new CancellationTokenSource();
+            await RefreshMyApplications();
             await RefreshApplicationsAndSubscribe();
         }
 
@@ -639,7 +733,7 @@ namespace Gw2Lfg
                 CancellationToken cancellationToken = _heartbeatCts.Token;
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    if (!string.IsNullOrEmpty(ApiKey))
+                    if (!string.IsNullOrWhiteSpace(ApiKey))
                     {
                         await _client.SendHeartbeat(cancellationToken);
                     }
@@ -667,6 +761,7 @@ namespace Gw2Lfg
                     GroupsChanged = null;
                     MyGroupChanged = null;
                     GroupApplicationsChanged = null;
+                    MyApplicationsChanged = null;
                     VisibleChanged = null;
                     IsLoadingGroupsChanged = null;
                     IsLoadingApplicationsChanged = null;

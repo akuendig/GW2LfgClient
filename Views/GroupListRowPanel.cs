@@ -4,6 +4,7 @@ using Blish_HUD;
 using Blish_HUD.Controls;
 using Microsoft.Xna.Framework;
 using System;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,12 +13,17 @@ namespace Gw2Lfg
 {
     public class GroupListRowPanel : Panel
     {
+        private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
         private const int PADDING = 10;
         private readonly System.Timers.Timer _statusUpdateTimer;
 
         public Proto.Group Group { get; private set; }
+        public Proto.GroupApplication MyApplication { get; private set; }
         private readonly LfgClient _lfgClient;
         private Label _statusLabel;
+        private StandardButton _applyButton;
+        private StandardButton _cancelApplicationButton;
+        private Label _myGroupLabel;
 
         public GroupListRowPanel(Proto.Group group, LfgViewModel viewModel, LfgClient lfgClient)
         {
@@ -29,10 +35,12 @@ namespace Gw2Lfg
             _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus();
             _statusUpdateTimer.Start();
 
-            BuildLayout(viewModel.AccountName);
+            var state = viewModel.State;
+            MyApplication = state.MyApplications.FirstOrDefault(a => a.GroupId == group.Id);
+            BuildLayout(state.AccountName, state.MyApplications);
         }
 
-        private void BuildLayout(string accountName)
+        private void BuildLayout(string accountName, ImmutableArray<Proto.GroupApplication> myApplications)
         {
             HeightSizingMode = SizingMode.AutoSize;
             ShowBorder = true;
@@ -128,21 +136,36 @@ namespace Gw2Lfg
             };
 
             var isYourGroup = Group.CreatorId == accountName;
-            var applyButton = new StandardButton
+            _applyButton = new StandardButton
             {
                 Parent = buttonPanel,
                 Text = "Apply",
                 Width = 100,
                 Height = 30,
                 Top = (buttonPanel.Height - 30) / 2,
-                Visible = !isYourGroup,
+                Visible = !isYourGroup && MyApplication == null,
             };
+            _applyButton.Click += OnApplyButtonClickedApply;
             buttonPanel.Resized += (s, e) =>
             {
-                applyButton.Top = (buttonPanel.Height - 30) / 2;
+                _applyButton.Top = (buttonPanel.Height - 30) / 2;
+            };
+            _cancelApplicationButton = new StandardButton
+            {
+                Parent = buttonPanel,
+                Text = "Cancel",
+                Width = 100,
+                Height = 30,
+                Top = (buttonPanel.Height - 30) / 2,
+                Visible = !isYourGroup && MyApplication != null,
+            };
+            _cancelApplicationButton.Click += OnApplyButtonClickedCancel;
+            buttonPanel.Resized += (s, e) =>
+            {
+                _cancelApplicationButton.Top = (buttonPanel.Height - 30) / 2;
             };
 
-            var myGroupLabel = new Label
+            _myGroupLabel = new Label
             {
                 Parent = buttonPanel,
                 Text = "My Group",
@@ -154,29 +177,42 @@ namespace Gw2Lfg
             };
             buttonPanel.Resized += (s, e) =>
             {
-                myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
-            };
-
-            applyButton.Click += async (s, e) =>
-            {
-                applyButton.Enabled = false;
-                try
-                {
-                    await ApplyToGroupAsync(Group.Id);
-                }
-                finally
-                {
-                    if (applyButton.Parent != null)
-                    {
-                        applyButton.Enabled = true;
-                    }
-                }
+                _myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
             };
         }
 
-        public void Update(string accountName, Proto.Group updatedGroup)
+        private async void OnApplyButtonClickedApply(object sender, EventArgs e)
+        {
+
+            _applyButton.Enabled = false;
+            try
+            {
+                await ApplyToGroupAsync(Group.Id);
+            }
+            finally
+            {
+                _applyButton.Enabled = true;
+            }
+        }
+
+        private async void OnApplyButtonClickedCancel(object sender, EventArgs e)
+        {
+
+            _applyButton.Enabled = false;
+            try
+            {
+                await CancelApplicationAsync(Group.Id, MyApplication.Id);
+            }
+            finally
+            {
+                _applyButton.Enabled = true;
+            }
+        }
+
+        public void Update(string accountName, Proto.Group updatedGroup, ImmutableArray<Proto.GroupApplication> myApplications)
         {
             Group = updatedGroup;
+            MyApplication = myApplications.FirstOrDefault(a => a.GroupId == updatedGroup.Id);
             var infoPanel = (Panel)Children.First();
             var titleLabel = (Label)infoPanel.Children.First();
             titleLabel.Text = updatedGroup.Title;
@@ -207,15 +243,15 @@ namespace Gw2Lfg
             }
             infoPanel.Height = infoPanel.Children.Sum(c => c.Height) + PADDING;
 
+            var isYourGroup = updatedGroup.CreatorId == accountName;
             var buttonPanel = (Panel)Children.Last();
             buttonPanel.Height = infoPanel.Height;
-            var applyButton = buttonPanel.GetChildrenOfType<StandardButton>().First();
-            applyButton.Top = (buttonPanel.Height - 30) / 2;
-            var myGroupLabel = buttonPanel.GetChildrenOfType<Label>().First();
-            myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
-            var isYourGroup = updatedGroup.CreatorId == accountName;
-            applyButton.Visible = !isYourGroup;
-            myGroupLabel.Visible = isYourGroup;
+            _applyButton.Top = (buttonPanel.Height - 30) / 2;
+            _applyButton.Visible = !isYourGroup && MyApplication == null;
+            _cancelApplicationButton.Top = (buttonPanel.Height - 30) / 2;
+            _cancelApplicationButton.Visible = !isYourGroup && MyApplication != null;
+            _myGroupLabel.Top = (buttonPanel.Height - 30) / 2;
+            _myGroupLabel.Visible = isYourGroup;
 
             UpdateStatus();
         }
@@ -234,6 +270,24 @@ namespace Gw2Lfg
             finally
             {
                 Notifications.ShowInfo("Application submitted");
+            }
+        }
+
+        private async Task CancelApplicationAsync(string groupId, string applicationId)
+        {
+            try
+            {
+                _cancelApplicationButton.Enabled = false;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _lfgClient.DeleteGroupApplication(groupId, applicationId, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to cancel application");
+            }
+            finally
+            {
+                _cancelApplicationButton.Enabled = true;
             }
         }
 

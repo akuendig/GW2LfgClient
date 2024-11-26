@@ -89,6 +89,17 @@ namespace Gw2Lfg
             );
         }
 
+        public async Task<ListGroupApplicationsResponse> ListMyApplications(string accountName, CancellationToken cancellationToken = default)
+        {
+            var request = new ListGroupApplicationsRequest
+            {
+                AccountName = accountName,
+            };
+            return await _client.UnaryCallAsync<ListGroupApplicationsRequest, ListGroupApplicationsResponse>(
+                "/gw2lfg.LfgService/ListGroupApplications", request, cancellationToken
+            );
+        }
+
         public async Task<DeleteGroupApplicationResponse> DeleteGroupApplication(string groupId, string applicationId, CancellationToken cancellationToken = default)
         {
             var request = new DeleteGroupApplicationRequest

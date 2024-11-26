@@ -51,7 +51,7 @@ namespace Gw2Lfg
 
             BuildFilterControls(container);
             BuildGroupsList(container, state.IsLoadingGroups);
-            UpdateGroupsList(state.Groups, state.AccountName);
+            UpdateGroupsList(state.Groups, state.AccountName, state.MyApplications);
         }
 
         private void BuildFilterControls(Panel parent)
@@ -148,6 +148,7 @@ namespace Gw2Lfg
         private void RegisterEvents()
         {
             _viewModel.GroupsChanged += OnGroupsChanged;
+            _viewModel.MyApplicationsChanged += OnMyApplicationsChanged;
             _viewModel.IsLoadingGroupsChanged += OnIsLoadingChanged;
         }
 
@@ -167,7 +168,12 @@ namespace Gw2Lfg
 
         private void OnGroupsChanged(object sender, LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.Group>> e)
         {
-            UpdateGroupsList(e.NewState.Groups, e.NewState.AccountName);
+            UpdateGroupsList(e.NewState.Groups, e.NewState.AccountName, e.NewState.MyApplications);
+        }
+
+        private void OnMyApplicationsChanged(object sender, LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.GroupApplication>> e)
+        {
+            UpdateGroupsList(e.NewState.Groups, e.NewState.AccountName, e.NewState.MyApplications);
         }
 
         private void OnIsLoadingChanged(object sender, LfgViewModelPropertyChangedEventArgs<bool> e)
@@ -188,7 +194,8 @@ namespace Gw2Lfg
             _contentTypeDropdown.SelectedItem = "All";
         }
 
-        private void UpdateGroupsList(IEnumerable<Proto.Group> groups, string accountName)
+        private void UpdateGroupsList(
+            IEnumerable<Proto.Group> groups, string accountName, ImmutableArray<Proto.GroupApplication> myApplications)
         {
             var currentGroups = new HashSet<string>(_groupPanels.Keys);
             var newGroups = new HashSet<string>(groups.Select(g => g.Id));
@@ -208,7 +215,7 @@ namespace Gw2Lfg
             {
                 if (_groupPanels.TryGetValue(group.Id, out var existingPanel))
                 {
-                    existingPanel.Update(accountName, group);
+                    existingPanel.Update(accountName, group, myApplications);
                 }
                 else
                 {
