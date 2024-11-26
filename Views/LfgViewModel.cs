@@ -5,27 +5,36 @@ using System.Linq;
 using System;
 using Blish_HUD;
 using System.Threading;
+using System.Collections.Immutable;
 using System.Net.Http;
 using System.Threading.Tasks;
 
+namespace System.Runtime.CompilerServices
+{
+    // Define this type because we are comiling against a .NET version lower than 5.0.
+    internal static class IsExternalInit { }
+}
+
 namespace Gw2Lfg
 {
+    public record LfgModel(
+        string AccountName,
+        string ApiKey,
+        ImmutableArray<Proto.Group> Groups,
+        Proto.Group? MyGroup,
+        ImmutableArray<Proto.GroupApplication> GroupApplications,
+        bool Visible,
+        bool IsLoadingGroups,
+        bool IsLoadingApplications
+    );
+
     public class LfgViewModel : IDisposable
     {
         private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
         private readonly object _stateLock = new();
+        private LfgModel _state = new("", "", [], null, [], false, false, false);
         private readonly SynchronizationContext _synchronizationContext;
         private bool _disposed;
-
-        // State containers
-        private string _accountName = "";
-        private string _apiKey = "";
-        private Proto.Group[] _groups = [];
-        private Proto.GroupApplication[] _groupApplications = [];
-        private Proto.Group? _myGroup;
-        private bool _visible = false;
-        private bool _isLoadingGroups = false;
-        private bool _isLoadingApplications = false;
 
         // Event handlers
         public event EventHandler<PropertyChangedEventArgs>? AccountNameChanged;
@@ -80,7 +89,7 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _accountName;
+                lock (_stateLock) return _state.AccountName;
             }
             set
             {
@@ -89,10 +98,10 @@ namespace Gw2Lfg
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = _accountName != value;
+                    changed = _state.AccountName != value;
                     if (changed)
                     {
-                        _accountName = value;
+                        _state = _state with { AccountName = value };
                     }
                 }
 
@@ -108,7 +117,7 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _apiKey;
+                lock (_stateLock) return _state.ApiKey;
             }
             set
             {
@@ -117,10 +126,10 @@ namespace Gw2Lfg
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = _apiKey != value;
+                    changed = _state.ApiKey != value;
                     if (changed)
                     {
-                        _apiKey = value;
+                        _state = _state with { ApiKey = value };
                     }
                 }
 
@@ -131,11 +140,11 @@ namespace Gw2Lfg
             }
         }
 
-        public Proto.Group[] Groups
+        public ImmutableArray<Proto.Group> Groups
         {
             get
             {
-                lock (_stateLock) return [.. _groups];
+                lock (_stateLock) return _state.Groups;
             }
             set
             {
@@ -145,10 +154,10 @@ namespace Gw2Lfg
                 lock (_stateLock)
                 {
                     var newGroups = value.ToArray();
-                    changed = !_groups.SequenceEqual(newGroups);
+                    changed = !_state.Groups.SequenceEqual(newGroups);
                     if (changed)
                     {
-                        _groups = newGroups;
+                        _state = _state with { Groups = [.. newGroups] };
                     }
                 }
 
@@ -164,17 +173,17 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _myGroup;
+                lock (_stateLock) return _state.MyGroup;
             }
             private set
             {
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = !Equals(_myGroup?.Id, value?.Id);
+                    changed = !Equals(_state.MyGroup?.Id, value?.Id);
                     if (changed)
                     {
-                        _myGroup = value;
+                        _state = _state with { MyGroup = value };
                     }
                 }
 
@@ -185,11 +194,11 @@ namespace Gw2Lfg
             }
         }
 
-        public Proto.GroupApplication[] GroupApplications
+        public ImmutableArray<Proto.GroupApplication> GroupApplications
         {
             get
             {
-                lock (_stateLock) return _groupApplications.ToArray();
+                lock (_stateLock) return _state.GroupApplications;
             }
             set
             {
@@ -199,10 +208,10 @@ namespace Gw2Lfg
                 lock (_stateLock)
                 {
                     var newApplications = value.ToArray();
-                    changed = !_groupApplications.SequenceEqual(newApplications);
+                    changed = !_state.GroupApplications.SequenceEqual(newApplications);
                     if (changed)
                     {
-                        _groupApplications = newApplications;
+                        _state = _state with { GroupApplications = [..newApplications] };
                     }
                 }
 
@@ -217,17 +226,17 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _visible;
+                lock (_stateLock) return _state.Visible;
             }
             set
             {
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = _visible != value;
+                    changed = _state.Visible != value;
                     if (changed)
                     {
-                        _visible = value;
+                        _state = _state with { Visible = value };
                     }
                 }
 
@@ -242,17 +251,17 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _isLoadingGroups;
+                lock (_stateLock) return _state.IsLoadingGroups;
             }
             set
             {
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = _isLoadingGroups != value;
+                    changed = _state.IsLoadingGroups != value;
                     if (changed)
                     {
-                        _isLoadingGroups = value;
+                        _state = _state with { IsLoadingGroups = value };
                     }
                 }
 
@@ -267,17 +276,17 @@ namespace Gw2Lfg
         {
             get
             {
-                lock (_stateLock) return _isLoadingApplications;
+                lock (_stateLock) return _state.IsLoadingApplications;
             }
             set
             {
                 bool changed;
                 lock (_stateLock)
                 {
-                    changed = _isLoadingApplications != value;
+                    changed = _state.IsLoadingApplications != value;
                     if (changed)
                     {
-                        _isLoadingApplications = value;
+                        _state = _state with { IsLoadingApplications = value };
                     }
                 }
 
@@ -295,10 +304,10 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                changed = !_groups.Any(g => g.Id == group.Id);
+                changed = !_state.Groups.Any(g => g.Id == group.Id);
                 if (changed)
                 {
-                    _groups = [.. _groups, group];
+                    _state = _state with { Groups = [.. _state.Groups, group] };
                 }
             }
 
@@ -316,13 +325,11 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                var index = Array.FindIndex(_groups, g => g.Id == updatedGroup.Id);
-                changed = index != -1 && !_groups[index].Equals(updatedGroup);
+                var old = _state.Groups.FirstOrDefault(g => g.Id != updatedGroup.Id);
+                changed = old != null && !old.Equals(updatedGroup);
                 if (changed)
                 {
-                    var newGroups = _groups.ToArray();
-                    newGroups[index] = updatedGroup;
-                    _groups = newGroups;
+                    _state = _state with { Groups = _state.Groups.Replace(old, updatedGroup) };
                 }
             }
 
@@ -340,11 +347,11 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                var newGroups = _groups.Where(g => g.Id != groupId).ToArray();
-                changed = newGroups.Length != _groups.Length;
+                var newGroups = _state.Groups.Where(g => g.Id != groupId).ToImmutableArray();;
+                changed = newGroups.Length != _state.Groups.Length;
                 if (changed)
                 {
-                    _groups = newGroups;
+                    _state = _state with { Groups = newGroups };
                 }
             }
 
@@ -362,11 +369,11 @@ namespace Gw2Lfg
 
             lock (_stateLock)
             {
-                newMyGroup = _groups.FirstOrDefault(g => g.CreatorId == _accountName);
-                changed = !Equals(_myGroup, newMyGroup);
+                newMyGroup = _state.Groups.FirstOrDefault(g => g.CreatorId == _state.AccountName);
+                changed = !Equals(_state.MyGroup, newMyGroup);
                 if (changed)
                 {
-                    _myGroup = newMyGroup;
+                    _state = _state with { MyGroup = newMyGroup };
                 }
             }
 
@@ -383,13 +390,11 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                var index = Array.FindIndex(_groupApplications, a => a.Id == updatedApplication.Id);
-                changed = index != -1 && !_groupApplications[index].Equals(updatedApplication);
+                var old = _state.GroupApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
+                changed = old != null && !old.Equals(updatedApplication);
                 if (changed)
                 {
-                    var newApplications = _groupApplications.ToArray();
-                    newApplications[index] = updatedApplication;
-                    _groupApplications = newApplications;
+                    _state = _state with { GroupApplications = _state.GroupApplications.Replace(old, updatedApplication) };
                 }
             }
 
@@ -406,11 +411,11 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                var newApplications = _groupApplications.Where(a => a.Id != applicationId).ToArray();
-                changed = newApplications.Length != _groupApplications.Length;
+                var newApplications = _state.GroupApplications.Where(a => a.Id != applicationId).ToImmutableArray();
+                changed = newApplications.Length != _state.GroupApplications.Length;
                 if (changed)
                 {
-                    _groupApplications = newApplications;
+                    _state = _state with { GroupApplications = newApplications };
                 }
             }
 
@@ -427,10 +432,10 @@ namespace Gw2Lfg
             bool changed;
             lock (_stateLock)
             {
-                changed = !_groupApplications.Any(a => a.Id == newApplication.Id);
+                changed = !_state.GroupApplications.Any(a => a.Id == newApplication.Id);
                 if (changed)
                 {
-                    _groupApplications = [.. _groupApplications, newApplication];
+                    _state = _state with { GroupApplications = [.. _state.GroupApplications, newApplication] };
                 }
             }
 
@@ -453,7 +458,7 @@ namespace Gw2Lfg
             {
                 IsLoadingGroups = true;
                 var initialGroups = await _client.ListGroups(cancellationToken);
-                Groups = initialGroups.Groups.ToArray();
+                Groups = [.. initialGroups.Groups];
             }
             catch (Exception ex)
             {
@@ -511,7 +516,7 @@ namespace Gw2Lfg
             {
                 IsLoadingApplications = true;
                 var initialApplications = await _client.ListGroupApplications(myGroupId, cancellationToken);
-                GroupApplications = initialApplications.Applications.ToArray();
+                GroupApplications = [.. initialApplications.Applications];
             }
             catch (Exception ex)
             {
