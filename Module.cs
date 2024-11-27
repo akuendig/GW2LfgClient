@@ -74,6 +74,7 @@ namespace Gw2Lfg
             _serverAddressSetting.SettingChanged += (sender, args) =>
             {
                 _httpClient.BaseAddress = new Uri(_serverAddressSetting.Value);
+                _viewModel.ServerAddress = _serverAddressSetting.Value;
             };
             _moduleIcon = new CornerIcon(
                 // ContentsManager.GetTexture("icons/group.png"),
@@ -93,7 +94,7 @@ namespace Gw2Lfg
                 // Emblem = ContentsManager.GetTexture("controls/window/156022"),
                 Subtitle = "",
                 SavesPosition = true,
-                Id = $"{nameof(Gw2LfgModule)}_ExampleModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
+                Id = $"{nameof(Gw2LfgModule)}_Gw2LfgModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
             };
             _lfgWindow.PropertyChanged += (s, e) =>
             {

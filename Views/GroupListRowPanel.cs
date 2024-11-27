@@ -13,7 +13,7 @@ namespace Gw2Lfg
 {
     public class GroupListRowPanel : Panel
     {
-        private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
+        private static readonly Logger Logger = Logger.GetLogger<GroupListRowPanel>();
         private const int PADDING = 10;
         private readonly System.Timers.Timer _statusUpdateTimer;
 

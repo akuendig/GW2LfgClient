@@ -7,6 +7,7 @@ using System.Threading;
 using System.Collections.Immutable;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace System.Runtime.CompilerServices
 {
@@ -17,15 +18,16 @@ namespace System.Runtime.CompilerServices
 namespace Gw2Lfg
 {
     public record LfgModel(
-        string AccountName,
-        string ApiKey,
         ImmutableArray<Proto.Group> Groups,
-        Proto.Group? MyGroup,
         ImmutableArray<Proto.GroupApplication> GroupApplications,
         ImmutableArray<Proto.GroupApplication> MyApplications,
-        bool Visible,
-        bool IsLoadingGroups,
-        bool IsLoadingApplications
+        string AccountName = "",
+        string ApiKey = "",
+        string ServerAddress = "",
+        Proto.Group? MyGroup = null,
+        bool Visible = false,
+        bool IsLoadingGroups = false,
+        bool IsLoadingApplications = false
     );
 
     public class LfgViewModelPropertyChangedEventArgs<T>(LfgModel oldState, LfgModel newState, Func<LfgModel, T> lens) :
@@ -36,13 +38,14 @@ namespace Gw2Lfg
     {
         private static readonly Logger Logger = Logger.GetLogger<LfgViewModel>();
         private readonly object _stateLock = new();
-        private LfgModel _state = new("", "", ImmutableArray<Proto.Group>.Empty, null, ImmutableArray<Proto.GroupApplication>.Empty, ImmutableArray<Proto.GroupApplication>.Empty, false, false, false);
+        private LfgModel _state = new(ImmutableArray<Proto.Group>.Empty, ImmutableArray<Proto.GroupApplication>.Empty, ImmutableArray<Proto.GroupApplication>.Empty);
         private readonly SynchronizationContext _synchronizationContext;
         private bool _disposed;
 
         // Event handlers
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<string>>? AccountNameChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<string>>? ApiKeyChanged;
+        public event EventHandler<LfgViewModelPropertyChangedEventArgs<string>>? ServerAddressChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.Group>>>? GroupsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<Proto.Group?>>? MyGroupChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.GroupApplication>>>? GroupApplicationsChanged;
@@ -70,28 +73,42 @@ namespace Gw2Lfg
             VisibleChanged += OnVisibleChanged;
         }
 
-        private void RaisePropertyChanged<T>(string propertyName, LfgModel oldState, LfgModel newState, Func<LfgModel, T> lens)
+        public LfgModel State { get { lock (_stateLock) return _state; } }
+
+        private void UpdateState<T>(Func<LfgModel, Tuple<LfgModel, bool>> update, Func<LfgModel, T> getter,
+            EventHandler<LfgViewModelPropertyChangedEventArgs<T>>? handler)
         {
-            if (_disposed) return;
-
-            var handler = propertyName switch
+            LfgModel oldState;
+            LfgModel newState;
+            lock (_stateLock)
             {
-                nameof(AccountName) => AccountNameChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(ApiKey) => ApiKeyChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(Groups) => GroupsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(MyGroup) => MyGroupChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(GroupApplications) => GroupApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(MyApplications) => MyApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(Visible) => VisibleChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(IsLoadingGroups) => IsLoadingGroupsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                nameof(IsLoadingApplications) => IsLoadingApplicationsChanged as EventHandler<LfgViewModelPropertyChangedEventArgs<T>>,
-                _ => null
-            };
+                var result = update(_state);
+                if (result.Item2)
+                {
+                    oldState = _state;
+                    _state = result.Item1;
+                    newState = _state;
+                }
+                else return;
+            }
 
-            handler?.Invoke(this, new LfgViewModelPropertyChangedEventArgs<T>(oldState, newState, lens));
+            if (!_disposed)
+            {
+                _synchronizationContext.Post(
+                    _ => handler?.Invoke(this, new LfgViewModelPropertyChangedEventArgs<T>(oldState, newState, getter)),
+                    null);
+            }
         }
 
-        public LfgModel State { get { lock (_stateLock) return _state; } }
+        private void SetState<T>(T value, Func<LfgModel, T> getter, Func<LfgModel, T, LfgModel> setter,
+            EventHandler<LfgViewModelPropertyChangedEventArgs<T>>? handler) => UpdateState(
+                s =>
+                {
+                    if (EqualityComparer<T>.Default.Equals(getter(s), value)) return Tuple.Create(s, false);
+                    return Tuple.Create(setter(s, value), true);
+                },
+                getter,
+                handler);
 
         public string AccountName
         {
@@ -101,22 +118,11 @@ namespace Gw2Lfg
             }
             set
             {
-                if (value == null) throw new ArgumentNullException(nameof(value));
-
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (_state.AccountName != value)
-                    {
-                        oldState = _state;
-                        _state = _state with { AccountName = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(AccountName), oldState, newState, s => s.AccountName);
+                SetState(
+                    value,
+                    s => s.AccountName,
+                    (s, v) => s with { AccountName = v },
+                    AccountNameChanged);
                 UpdateMyGroup();
             }
         }
@@ -127,25 +133,22 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.ApiKey;
             }
-            set
+            set => SetState(value,
+                s => s.ApiKey,
+                (s, v) => s with { ApiKey = v },
+                ApiKeyChanged);
+        }
+
+        public string ServerAddress
+        {
+            get
             {
-                if (value == null) throw new ArgumentNullException(nameof(value));
-
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (_state.ApiKey != value)
-                    {
-                        oldState = _state;
-                        _state = _state with { ApiKey = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(ApiKey), oldState, newState, s => s.ApiKey);
+                lock (_stateLock) return _state.ServerAddress;
             }
+            set => SetState(value,
+                s => s.ServerAddress,
+                (s, v) => s with { ServerAddress = v },
+                ServerAddressChanged);
         }
 
         public ImmutableArray<Proto.Group> Groups
@@ -156,23 +159,12 @@ namespace Gw2Lfg
             }
             set
             {
-                if (value == null) throw new ArgumentNullException(nameof(value));
-
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (!_state.Groups.SequenceEqual(value))
-                    {
-                        oldState = _state;
-                        _state = _state with { Groups = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
+                SetState(
+                    value,
+                    s => s.Groups,
+                    (s, v) => s with { Groups = v },
+                    GroupsChanged);
                 UpdateMyGroup();
-                RaisePropertyChanged(nameof(Groups), oldState, newState, s => s.Groups);
             }
         }
 
@@ -182,23 +174,11 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.MyGroup;
             }
-            private set
-            {
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (!Equals(_state.MyGroup?.Id, value?.Id))
-                    {
-                        oldState = _state;
-                        _state = _state with { MyGroup = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(MyGroup), oldState, newState, s => s.MyGroup);
-            }
+            private set => SetState(
+                value,
+                s => s.MyGroup,
+                (s, v) => s with { MyGroup = v },
+                MyGroupChanged);
         }
 
         public ImmutableArray<Proto.GroupApplication> GroupApplications
@@ -207,25 +187,11 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.GroupApplications;
             }
-            set
-            {
-                if (value == null) throw new ArgumentNullException(nameof(value));
-
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (!_state.GroupApplications.SequenceEqual(value))
-                    {
-                        oldState = _state;
-                        _state = _state with { GroupApplications = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
-            }
+            set => SetState(
+                value,
+                s => s.GroupApplications,
+                (s, v) => s with { GroupApplications = v },
+                GroupApplicationsChanged);
         }
 
         public ImmutableArray<Proto.GroupApplication> MyApplications
@@ -234,25 +200,11 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.MyApplications;
             }
-            set
-            {
-                if (value == null) throw new ArgumentNullException(nameof(value));
-
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (!_state.MyApplications.SequenceEqual(value))
-                    {
-                        oldState = _state;
-                        _state = _state with { MyApplications = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
-            }
+            set => SetState(
+                value,
+                s => s.MyApplications,
+                (s, v) => s with { MyApplications = v },
+                MyApplicationsChanged);
         }
 
         public bool Visible
@@ -261,23 +213,11 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.Visible;
             }
-            set
-            {
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (_state.Visible != value)
-                    {
-                        oldState = _state;
-                        _state = _state with { Visible = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(Visible), oldState, newState, s => s.Visible);
-            }
+            set => SetState(
+                value,
+                s => s.Visible,
+                (s, v) => s with { Visible = v },
+                VisibleChanged);
         }
 
         public bool IsLoadingGroups
@@ -286,23 +226,11 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.IsLoadingGroups;
             }
-            set
-            {
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (_state.IsLoadingGroups != value)
-                    {
-                        oldState = _state;
-                        _state = _state with { IsLoadingGroups = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(IsLoadingGroups), oldState, newState, s => s.IsLoadingGroups);
-            }
+            set => SetState(
+                value,
+                s => s.IsLoadingGroups,
+                (s, v) => s with { IsLoadingGroups = v },
+                IsLoadingGroupsChanged);
         }
 
         public bool IsLoadingApplications
@@ -311,210 +239,112 @@ namespace Gw2Lfg
             {
                 lock (_stateLock) return _state.IsLoadingApplications;
             }
-            set
-            {
-                LfgModel oldState;
-                LfgModel newState;
-                lock (_stateLock)
-                {
-                    if (_state.IsLoadingApplications != value)
-                    {
-                        oldState = _state;
-                        _state = _state with { IsLoadingApplications = value };
-                        newState = _state;
-                    }
-                    else return;
-                }
-
-                RaisePropertyChanged(nameof(IsLoadingApplications), oldState, newState, s => s.IsLoadingApplications);
-            }
+            set => SetState(
+                value,
+                s => s.IsLoadingApplications,
+                (s, v) => s with { IsLoadingApplications = v },
+                IsLoadingApplicationsChanged);
         }
 
         public void AddGroup(Proto.Group group)
         {
             if (group == null) throw new ArgumentNullException(nameof(group));
 
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                if (!_state.Groups.Any(g => g.Id == group.Id))
+            UpdateState(
+                s =>
                 {
-                    oldState = _state;
-                    _state = _state with { Groups = _state.Groups.Add(group) };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(Groups), oldState, newState, s => s.Groups);
-            UpdateMyGroup();
+                    if (s.Groups.Any(g => g.Id == group.Id)) return Tuple.Create(s, false);
+                    return Tuple.Create(s with { Groups = s.Groups.Add(group) }, true);
+                },
+                s => s.Groups,
+                GroupsChanged);
         }
 
         public void UpdateGroup(Proto.Group updatedGroup)
         {
             if (updatedGroup == null) throw new ArgumentNullException(nameof(updatedGroup));
 
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                var old = _state.Groups.FirstOrDefault(g => g.Id == updatedGroup.Id);
-                if (old != null && !old.Equals(updatedGroup))
+            UpdateState(
+                s =>
                 {
-                    oldState = _state;
-                    _state = _state with { Groups = _state.Groups.Replace(old, updatedGroup) };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(Groups), oldState, newState, s => s.Groups);
+                    var old = _state.Groups.FirstOrDefault(g => g.Id == updatedGroup.Id);
+                    if (old == null || old.Equals(updatedGroup)) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { Groups = s.Groups.Replace(old, updatedGroup) }, true);
+                },
+                s => s.Groups,
+                GroupsChanged);
             UpdateMyGroup();
         }
 
         public void RemoveGroup(string groupId)
         {
-            if (string.IsNullOrEmpty(groupId)) throw new ArgumentException("Group ID cannot be null or empty", nameof(groupId));
-
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                var newGroups = _state.Groups.Where(g => g.Id != groupId).ToImmutableArray();
-                if (newGroups.Length != _state.Groups.Length)
+            UpdateState(
+                s =>
                 {
-                    oldState = _state;
-                    _state = _state with { Groups = newGroups };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(Groups), oldState, newState, s => s.Groups);
+                    var newGroups = _state.Groups.Where(g => g.Id != groupId).ToImmutableArray();
+                    if (s.Groups.Length == newGroups.Length) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { Groups = newGroups }, true);
+                },
+                s => s.Groups,
+                GroupsChanged);
             UpdateMyGroup();
-        }
-
-        public void UpdateApplication(Proto.GroupApplication updatedApplication)
-        {
-            if (updatedApplication == null) throw new ArgumentNullException(nameof(updatedApplication));
-
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                var oldGroup = _state.GroupApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
-                var oldMy = _state.MyApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
-
-                if ((oldGroup != null && !oldGroup.Equals(updatedApplication)) ||
-                    (oldMy != null && !oldMy.Equals(updatedApplication)))
-                {
-                    oldState = _state;
-                    var newGroupApps = oldGroup != null
-                        ? _state.GroupApplications.Replace(oldGroup, updatedApplication)
-                        : _state.GroupApplications;
-                    var newMyApps = oldMy != null
-                        ? _state.MyApplications.Replace(oldMy, updatedApplication)
-                        : _state.MyApplications;
-
-                    _state = _state with
-                    {
-                        GroupApplications = newGroupApps,
-                        MyApplications = newMyApps
-                    };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
-            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
-        }
-
-        public void RemoveApplication(string applicationId)
-        {
-            if (string.IsNullOrEmpty(applicationId)) throw new ArgumentException("Application ID cannot be null or empty", nameof(applicationId));
-
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                var newGroupApplications = _state.GroupApplications.Where(a => a.Id != applicationId).ToImmutableArray();
-                var newMyApplications = _state.MyApplications.Where(a => a.Id != applicationId).ToImmutableArray();
-
-                if (newGroupApplications.Length != _state.GroupApplications.Length ||
-                    newMyApplications.Length != _state.MyApplications.Length)
-                {
-                    oldState = _state;
-                    _state = _state with
-                    {
-                        GroupApplications = newGroupApplications,
-                        MyApplications = newMyApplications
-                    };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
-            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
         }
 
         public void AddApplication(Proto.GroupApplication newApplication)
         {
+
             if (newApplication == null) throw new ArgumentNullException(nameof(newApplication));
 
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                bool shouldAddToGroup =
-                    _state.MyGroup != null &&
-                    _state.MyGroup.Id == newApplication.GroupId &&
-                    !_state.GroupApplications.Any(a => a.Id == newApplication.Id);
-                bool shouldAddToMy = !_state.MyApplications.Any(a => a.Id == newApplication.Id);
-
-                if (shouldAddToGroup || shouldAddToMy)
+            UpdateState(
+                s =>
                 {
-                    oldState = _state;
-                    var newGroupApps = shouldAddToGroup
-                        ? _state.GroupApplications.Add(newApplication)
-                        : _state.GroupApplications;
-                    var newMyApps = shouldAddToMy
-                        ? _state.MyApplications.Add(newApplication)
-                        : _state.MyApplications;
+                    if (s.GroupApplications.Any(g => g.Id == newApplication.Id)) return Tuple.Create(s, false);
+                    return Tuple.Create(s with { GroupApplications = s.GroupApplications.Add(newApplication) }, true);
+                },
+                s => s.GroupApplications,
+                GroupApplicationsChanged);
+        }
 
-                    _state = _state with
-                    {
-                        GroupApplications = newGroupApps,
-                        MyApplications = newMyApps
-                    };
-                    newState = _state;
-                }
-                else return;
-            }
+        public void UpdateApplication(Proto.GroupApplication updatedApplication)
+        {
 
-            RaisePropertyChanged(nameof(GroupApplications), oldState, newState, s => s.GroupApplications);
-            RaisePropertyChanged(nameof(MyApplications), oldState, newState, s => s.MyApplications);
+            if (updatedApplication == null) throw new ArgumentNullException(nameof(updatedApplication));
+
+            UpdateState(
+                s =>
+                {
+                    var old = _state.GroupApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
+                    if (old == null || old.Equals(updatedApplication)) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { GroupApplications = s.GroupApplications.Replace(old, updatedApplication) }, true);
+                },
+                s => s.GroupApplications,
+                GroupApplicationsChanged);
+        }
+
+        public void RemoveApplication(string applicationId)
+        {
+            UpdateState(
+                s =>
+                {
+                    var newGroupApplications = _state.GroupApplications.Where(a => a.Id != applicationId).ToImmutableArray();
+                    if (s.GroupApplications.Length == newGroupApplications.Length) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { GroupApplications = newGroupApplications }, true);
+                },
+                s => s.GroupApplications,
+                GroupApplicationsChanged);
         }
 
         private void UpdateMyGroup()
         {
-            LfgModel oldState;
-            LfgModel newState;
-            lock (_stateLock)
-            {
-                var newMyGroup = _state.Groups.FirstOrDefault(g => g.CreatorId == _state.AccountName);
-                if (!Equals(_state.MyGroup?.Id, newMyGroup?.Id))
+            UpdateState(
+                s =>
                 {
-                    oldState = _state;
-                    _state = _state with { MyGroup = newMyGroup };
-                    newState = _state;
-                }
-                else return;
-            }
-
-            RaisePropertyChanged(nameof(MyGroup), oldState, newState, s => s.MyGroup);
+                    var newMyGroup = _state.Groups.FirstOrDefault(g => g.CreatorId == _state.AccountName);
+                    if (Equals(_state.MyGroup?.Id, newMyGroup?.Id)) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { MyGroup = newMyGroup }, true);
+                },
+                s => s.MyGroup,
+                MyGroupChanged);
         }
 
         private async Task RefreshGroupsAndSubscribe()
