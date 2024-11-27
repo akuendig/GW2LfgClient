@@ -68,7 +68,7 @@ namespace Gw2Lfg
             _synchronizationContext = SynchronizationContext.Current ?? new SynchronizationContext();
 
             ApiKeyChanged += OnApiKeyChanged;
-            // GroupsChanged += OnGroupsChanged;
+            ServerAddressChanged += OnServerAddressChanged;
             MyGroupChanged += OnMyGroupChanged;
             VisibleChanged += OnVisibleChanged;
         }
@@ -500,16 +500,17 @@ namespace Gw2Lfg
 
         private async void OnApiKeyChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
-            Connect(ApiKey);
+            Connect(ApiKey, ServerAddress);
             SendHeartbeats();
             await TrySubscribeGroups();
             await TrySubscribeApplications();
         }
 
-        private async void OnGroupsChanged(object sender, LfgViewModelPropertyChangedEventArgs<ImmutableArray<Proto.Group>> e)
+        private async void OnServerAddressChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
-            // TODO: This now runs on every heartbeat because the update time of the group
-            // is changed. Should it?
+            Connect(ApiKey, ServerAddress);
+            SendHeartbeats();
+            await TrySubscribeGroups();
             await TrySubscribeApplications();
         }
 
@@ -520,7 +521,7 @@ namespace Gw2Lfg
             await TrySubscribeApplications();
         }
 
-        public void Connect(string apiKey)
+        public void Connect(string apiKey, string serverAddress)
         {
             lock (_stateLock)
             {
@@ -530,7 +531,7 @@ namespace Gw2Lfg
 
                 _apiKeyCts.Cancel();
                 _apiKeyCts = new CancellationTokenSource();
-                _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, _apiKeyCts.Token);
+                _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, serverAddress, _apiKeyCts.Token);
                 _client = new LfgClient(_grpcClient);
             }
         }

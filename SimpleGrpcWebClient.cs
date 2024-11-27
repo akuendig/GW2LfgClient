@@ -11,21 +11,34 @@ using System.Runtime.CompilerServices;
 
 namespace Gw2Lfg
 {
-    public class SimpleGrpcWebClient(HttpClient httpClient, string apiKey, CancellationToken cancellationToken)
+    public class GrpcException(int code, string message) : Exception(message)
+    {
+        public int Code { get; init; } = code;
+    }
+
+    public class SimpleGrpcWebClient(HttpClient httpClient, string apiKey, string serverAddress, CancellationToken cancellationToken)
     {
         private readonly HttpClient _httpClient = httpClient;
         private readonly CancellationToken _cancellationToken = cancellationToken;
-        private readonly object _apiKeyLock = new();
+        private readonly object _stateLock = new();
         private string _apiKey = apiKey;
+        private string _serverAddress = serverAddress;
         private const string GrpcWebFormat = "application/grpc-web+proto";
         private const string GrpcStatusHeader = "grpc-status";
         private const string GrpcMessageHeader = "grpc-message";
 
         public void SetApiKey(string apiKey)
         {
-            lock (_apiKeyLock)
+            lock (_stateLock)
             {
                 _apiKey = apiKey;
+            }
+        }
+        public void SetServerAddress(string serverAddress)
+        {
+            lock (_stateLock)
+            {
+                _serverAddress = serverAddress;
             }
         }
 
@@ -44,13 +57,16 @@ namespace Gw2Lfg
                 message = messageValues.First();
             }
 
-            if (status == "16") // Status code for Unauthenticated
+            int.TryParse(status, out var statusCode);
+
+            if (statusCode == 0) return;
+            else if (statusCode == 16) // Status code for Unauthenticated
             {
-                throw new UnauthorizedAccessException($"Authentication failed: {message}");
+                throw new UnauthorizedAccessException($"Unauthorized: {message}");
             }
-            else if (status != "0") // 0 is OK
+            else
             {
-                throw new Exception($"gRPC error {status}: {message}");
+                throw new GrpcException(statusCode, message);
             }
         }
 
@@ -211,7 +227,8 @@ namespace Gw2Lfg
             Array.Copy(lengthBytes, 0, framedRequest, 1, 4);
             Array.Copy(messageBytes, 0, framedRequest, 5, messageBytes.Length);
 
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, methodName)
+            var uri = new UriBuilder(_serverAddress) { Path = methodName }.Uri;
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, uri)
             {
                 Content = new ByteArrayContent(framedRequest),
                 // HTTP2 is not supported.
@@ -221,7 +238,7 @@ namespace Gw2Lfg
             // Add required headers
             httpRequest.Headers.Add("x-grpc-web", "1");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(GrpcWebFormat));
-            lock (_apiKeyLock)
+            lock (_stateLock)
             {
                 httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
             }

@@ -40,7 +40,7 @@ namespace Gw2Lfg
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
         {
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, "", CancellationToken.None);
+            _grpcClient = new SimpleGrpcWebClient(_httpClient, "", "", CancellationToken.None);
             _lfgClient = new LfgClient(_grpcClient);
             _viewModel = new LfgViewModel(_httpClient);
         }
@@ -70,11 +70,12 @@ namespace Gw2Lfg
 
         protected override void Initialize()
         {
-            _httpClient.BaseAddress = new Uri(_serverAddressSetting.Value);
+            _viewModel.ServerAddress = _serverAddressSetting.Value;
+            _grpcClient.SetServerAddress(_serverAddressSetting.Value);
             _serverAddressSetting.SettingChanged += (sender, args) =>
             {
-                _httpClient.BaseAddress = new Uri(_serverAddressSetting.Value);
-                _viewModel.ServerAddress = _serverAddressSetting.Value;
+                _grpcClient.SetServerAddress(args.NewValue);
+                _viewModel.ServerAddress = args.NewValue;
             };
             _moduleIcon = new CornerIcon(
                 // ContentsManager.GetTexture("icons/group.png"),
