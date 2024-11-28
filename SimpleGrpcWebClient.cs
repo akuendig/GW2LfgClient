@@ -16,9 +16,8 @@ namespace Gw2Lfg
         public int Code { get; init; } = code;
     }
 
-    public class SimpleGrpcWebClient(HttpClient httpClient, string apiKey, string serverAddress, CancellationToken cancellationToken)
+    public class SimpleGrpcWebClient(string apiKey, string serverAddress, CancellationToken cancellationToken)
     {
-        private readonly HttpClient _httpClient = httpClient;
         private readonly CancellationToken _cancellationToken = cancellationToken;
         private readonly object _stateLock = new();
         private string _apiKey = apiKey;
@@ -245,7 +244,8 @@ namespace Gw2Lfg
             httpRequest.Headers.TransferEncodingChunked = true;
             httpRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(GrpcWebFormat);
 
-            var response = await _httpClient.SendAsync(
+            var client = new HttpClient() { Timeout = stream ? TimeSpan.FromHours(1) : TimeSpan.FromSeconds(30) };
+            var response = await client.SendAsync(
                 httpRequest,
                 stream ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
                 CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationToken).Token

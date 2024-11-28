@@ -5,7 +5,6 @@ using System;
 using Blish_HUD;
 using System.Threading;
 using System.Collections.Immutable;
-using System.Net.Http;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
@@ -54,7 +53,6 @@ namespace Gw2Lfg
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingGroupsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingApplicationsChanged;
 
-        private readonly HttpClient _httpClient;
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
         private CancellationTokenSource _apiKeyCts = new();
@@ -62,9 +60,8 @@ namespace Gw2Lfg
         private CancellationTokenSource _applicationsSubCts = new();
         private CancellationTokenSource _heartbeatCts = new();
 
-        public LfgViewModel(HttpClient httpClient)
+        public LfgViewModel()
         {
-            _httpClient = httpClient;
             _synchronizationContext = SynchronizationContext.Current ?? new SynchronizationContext();
 
             ApiKeyChanged += OnApiKeyChanged;
@@ -347,15 +344,14 @@ namespace Gw2Lfg
                 MyGroupChanged);
         }
 
-        private async Task RefreshGroupsAndSubscribe()
+        private async Task RefreshGroupsAndSubscribe(LfgModel state, CancellationToken cancellationToken = default)
         {
             // TODO: This should probably retry in case the server goes away?
-            if (string.IsNullOrWhiteSpace(ApiKey))
+            if (string.IsNullOrWhiteSpace(state.ApiKey))
             {
                 return;
             }
 
-            CancellationToken cancellationToken = _groupsSubCts.Token;
             try
             {
                 IsLoadingGroups = true;
@@ -404,20 +400,18 @@ namespace Gw2Lfg
             }, cancellationToken);
         }
 
-        private async Task RefreshApplicationsAndSubscribe()
+        private async Task RefreshApplicationsAndSubscribe(LfgModel state, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(ApiKey) || MyGroup == null)
+            if (string.IsNullOrWhiteSpace(state.ApiKey) || state.MyGroup == null)
             {
                 return;
             }
-            string myGroupId = MyGroup.Id;
-            CancellationToken cancellationToken = _applicationsSubCts.Token;
 
             // TODO: This should probably retry in case the server goes away?
             try
             {
                 IsLoadingApplications = true;
-                var initialApplications = await _client.ListGroupApplications(myGroupId, cancellationToken);
+                var initialApplications = await _client.ListGroupApplications(state.MyGroup.Id, cancellationToken);
                 GroupApplications = initialApplications.Applications.ToImmutableArray();
             }
             catch (Exception ex)
@@ -430,7 +424,7 @@ namespace Gw2Lfg
             {
                 try
                 {
-                    await foreach (var update in _client.SubscribeGroupApplications(myGroupId, cancellationToken))
+                    await foreach (var update in _client.SubscribeGroupApplications(state.MyGroup.Id, cancellationToken))
                     {
                         if (cancellationToken.IsCancellationRequested)
                         {
@@ -462,18 +456,17 @@ namespace Gw2Lfg
             }, cancellationToken);
         }
 
-        private async Task RefreshMyApplications()
+        private async Task RefreshMyApplications(LfgModel state, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(ApiKey) || string.IsNullOrWhiteSpace(AccountName))
+            if (string.IsNullOrWhiteSpace(state.ApiKey) || string.IsNullOrWhiteSpace(state.AccountName))
             {
                 return;
             }
-            CancellationToken cancellationToken = _applicationsSubCts.Token;
 
             // TODO: This should probably retry in case the server goes away?
             try
             {
-                var initialApplications = await _client.ListMyApplications(AccountName, cancellationToken);
+                var initialApplications = await _client.ListMyApplications(state.AccountName, cancellationToken);
                 MyApplications = initialApplications.Applications.ToImmutableArray();
             }
             catch (Exception ex)
@@ -487,8 +480,8 @@ namespace Gw2Lfg
             if (Visible)
             {
                 SendHeartbeats();
-                TrySubscribeGroups();
-                TrySubscribeApplications();
+                TrySubscribeGroups(e.NewState);
+                TrySubscribeApplications(e.NewState);
             }
             else
             {
@@ -500,25 +493,25 @@ namespace Gw2Lfg
 
         private async void OnApiKeyChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
-            Connect(ApiKey, ServerAddress);
+            Connect(e.NewState.ApiKey, e.NewState.ServerAddress);
             SendHeartbeats();
-            await TrySubscribeGroups();
-            await TrySubscribeApplications();
+            await TrySubscribeGroups(e.NewState);
+            await TrySubscribeApplications(e.NewState);
         }
 
         private async void OnServerAddressChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)
         {
-            Connect(ApiKey, ServerAddress);
+            Connect(e.NewState.ApiKey, e.NewState.ServerAddress);
             SendHeartbeats();
-            await TrySubscribeGroups();
-            await TrySubscribeApplications();
+            await TrySubscribeGroups(e.NewState);
+            await TrySubscribeApplications(e.NewState);
         }
 
         private async void OnMyGroupChanged(object sender, LfgViewModelPropertyChangedEventArgs<Proto.Group?> e)
         {
             // TODO: This now runs on every heartbeat because the update time of the group
             // is changed. Should it?
-            await TrySubscribeApplications();
+            await TrySubscribeApplications(e.NewState);
         }
 
         public void Connect(string apiKey, string serverAddress)
@@ -531,45 +524,49 @@ namespace Gw2Lfg
 
                 _apiKeyCts.Cancel();
                 _apiKeyCts = new CancellationTokenSource();
-                _grpcClient = new SimpleGrpcWebClient(_httpClient, apiKey, serverAddress, _apiKeyCts.Token);
+                _grpcClient = new SimpleGrpcWebClient(apiKey, serverAddress, _apiKeyCts.Token);
                 _client = new LfgClient(_grpcClient);
             }
         }
 
-        private async Task TrySubscribeGroups()
+        private async Task TrySubscribeGroups(LfgModel state)
         {
-            _groupsSubCts?.Cancel();
-            _groupsSubCts?.Dispose();
-            _groupsSubCts = new CancellationTokenSource();
-            await RefreshGroupsAndSubscribe();
-        }
-
-        private async Task TrySubscribeApplications()
-        {
-            _applicationsSubCts?.Cancel();
-            _applicationsSubCts?.Dispose();
-            _applicationsSubCts = new CancellationTokenSource();
-            await RefreshMyApplications();
-            await RefreshApplicationsAndSubscribe();
-        }
-
-        private async Task SendHeartbeats()
-        {
-            _heartbeatCts?.Cancel();
-            _heartbeatCts?.Dispose();
-            _heartbeatCts = new CancellationTokenSource();
-
+            CancellationToken cancellationToken;
+            lock (_stateLock)
+            {
+                _groupsSubCts?.Cancel();
+                _groupsSubCts?.Dispose();
+                _groupsSubCts = new CancellationTokenSource();
+                cancellationToken = _groupsSubCts.Token;
+            }
             try
             {
-                CancellationToken cancellationToken = _heartbeatCts.Token;
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    if (!string.IsNullOrWhiteSpace(ApiKey))
-                    {
-                        await _client.SendHeartbeat(cancellationToken);
-                    }
-                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
-                }
+                await RefreshGroupsAndSubscribe(state, cancellationToken);
+            }
+                        catch (OperationCanceledException)
+                        {
+                            // Normal cancellation, ignore
+                        }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "TrySubscribeApplications error");
+            }
+        }
+
+        private async Task TrySubscribeApplications(LfgModel state)
+        {
+            CancellationToken cancellationToken;
+            lock (_stateLock)
+            {
+                _applicationsSubCts?.Cancel();
+                _applicationsSubCts?.Dispose();
+                _applicationsSubCts = new CancellationTokenSource();
+                cancellationToken = _applicationsSubCts.Token;
+            }
+            try
+            {
+                await RefreshMyApplications(state, cancellationToken);
+                await RefreshApplicationsAndSubscribe(state, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -577,7 +574,47 @@ namespace Gw2Lfg
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "Heartbeat error");
+                Logger.Error(ex, "TrySubscribeApplications error");
+            }
+        }
+
+        private async Task SendHeartbeats()
+        {
+            CancellationToken cancellationToken;
+            lock (_stateLock)
+            {
+                _heartbeatCts?.Cancel();
+                _heartbeatCts?.Dispose();
+                _heartbeatCts = new CancellationTokenSource();
+                cancellationToken = _heartbeatCts.Token;
+            }
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    if (!string.IsNullOrWhiteSpace(ApiKey))
+                    {
+                        try
+                        {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                            await _client.SendHeartbeat(cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Normal cancellation, ignore
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error(ex, "Heartbeat error");
+                        }
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal cancellation, ignore
             }
         }
 

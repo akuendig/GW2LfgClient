@@ -27,11 +27,6 @@ namespace Gw2Lfg
         private CornerIcon _moduleIcon;
         private StandardWindow _lfgWindow;
         private SettingEntry<string> _serverAddressSetting;
-        private readonly HttpClient _httpClient = new()
-        {
-            // Set high timeout for server streaming requests.
-            Timeout = TimeSpan.FromHours(1),
-        };
         private readonly SimpleGrpcWebClient _grpcClient;
         private readonly LfgClient _lfgClient;
         private LfgView _lfgView;
@@ -40,9 +35,9 @@ namespace Gw2Lfg
         [ImportingConstructor]
         public Gw2LfgModule([Import("ModuleParameters")] ModuleParameters moduleParameters) : base(moduleParameters)
         {
-            _grpcClient = new SimpleGrpcWebClient(_httpClient, "", "", CancellationToken.None);
+            _grpcClient = new SimpleGrpcWebClient("", "", CancellationToken.None);
             _lfgClient = new LfgClient(_grpcClient);
-            _viewModel = new LfgViewModel(_httpClient);
+            _viewModel = new LfgViewModel();
         }
 
         protected override void DefineSettings(SettingCollection settings)
@@ -111,11 +106,6 @@ namespace Gw2Lfg
             };
 
             Gw2ApiManager.SubtokenUpdated += OnSubtokenUpdated;
-
-#if DEBUG
-            //_lfgView = new LfgView(_httpClient, _viewModel);
-            //_lfgWindow.Show(_lfgView);
-#endif
         }
 
         protected override void Unload()
