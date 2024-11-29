@@ -114,10 +114,10 @@ namespace Gw2Lfg
 
         public IAsyncEnumerable<GroupApplicationUpdate> SubscribeGroupApplications(string groupId, CancellationToken cancellationToken = default)
         {
-            var request = new SubscribeGroupApplicationsRequest
-            {
-                GroupId = groupId,
-            };
+            var request = new SubscribeGroupApplicationsRequest();
+            if (!string.IsNullOrWhiteSpace(groupId)) {
+                request.GroupId = groupId;
+            }
             return _client.ServerStreamingCallAsync<SubscribeGroupApplicationsRequest, GroupApplicationUpdate>(
                 "/gw2lfg.LfgService/SubscribeGroupApplications", request, cancellationToken
             );

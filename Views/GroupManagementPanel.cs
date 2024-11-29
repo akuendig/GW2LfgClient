@@ -153,6 +153,10 @@ namespace Gw2Lfg
                                    _requirementsDropdown?.SelectedItem ?? ""
                                );
                 }
+                catch (Exception ex)
+                {
+                    Notifications.ShowError($"Failed to update group: {ex.Message}");
+                }
                 finally
                 {
                     updateButton.Enabled = true;
@@ -166,6 +170,10 @@ namespace Gw2Lfg
                 try
                 {
                     await CloseGroupAsync(group.Id);
+                }
+                catch (Exception ex)
+                {
+                    Notifications.ShowError($"Failed to close group: {ex.Message}");
                 }
                 finally
                 {

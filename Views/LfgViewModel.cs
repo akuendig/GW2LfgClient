@@ -255,6 +255,7 @@ namespace Gw2Lfg
                 },
                 s => s.Groups,
                 GroupsChanged);
+            UpdateMyGroup();
         }
 
         public void UpdateGroup(Proto.Group updatedGroup)
@@ -331,6 +332,50 @@ namespace Gw2Lfg
                 GroupApplicationsChanged);
         }
 
+        public void AddMyApplication(Proto.GroupApplication newApplication)
+        {
+
+            if (newApplication == null) throw new ArgumentNullException(nameof(newApplication));
+
+            UpdateState(
+                s =>
+                {
+                    if (s.MyApplications.Any(g => g.Id == newApplication.Id)) return Tuple.Create(s, false);
+                    return Tuple.Create(s with { MyApplications = s.MyApplications.Add(newApplication) }, true);
+                },
+                s => s.MyApplications,
+                MyApplicationsChanged);
+        }
+
+        public void UpdateMyApplication(Proto.GroupApplication updatedApplication)
+        {
+
+            if (updatedApplication == null) throw new ArgumentNullException(nameof(updatedApplication));
+
+            UpdateState(
+                s =>
+                {
+                    var old = _state.MyApplications.FirstOrDefault(a => a.Id == updatedApplication.Id);
+                    if (old == null || old.Equals(updatedApplication)) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { MyApplications = s.MyApplications.Replace(old, updatedApplication) }, true);
+                },
+                s => s.MyApplications,
+                MyApplicationsChanged);
+        }
+
+        public void RemoveMyApplication(string applicationId)
+        {
+            UpdateState(
+                s =>
+                {
+                    var newMyApplications = _state.MyApplications.Where(a => a.Id != applicationId).ToImmutableArray();
+                    if (s.MyApplications.Length == newMyApplications.Length) return Tuple.Create(s, false);
+                    else return Tuple.Create(s with { MyApplications = newMyApplications }, true);
+                },
+                s => s.MyApplications,
+                MyApplicationsChanged);
+        }
+
         private void UpdateMyGroup()
         {
             UpdateState(
@@ -402,29 +447,31 @@ namespace Gw2Lfg
 
         private async Task RefreshApplicationsAndSubscribe(LfgModel state, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(state.ApiKey) || state.MyGroup == null)
+            if (string.IsNullOrWhiteSpace(state.ApiKey))
             {
                 return;
             }
 
-            // TODO: This should probably retry in case the server goes away?
-            try
+            if (state.MyGroup != null)
             {
-                IsLoadingApplications = true;
-                var initialApplications = await _client.ListGroupApplications(state.MyGroup.Id, cancellationToken);
-                GroupApplications = initialApplications.Applications.ToImmutableArray();
+                try
+                {
+                    IsLoadingApplications = true;
+                    var initialApplications = await _client.ListGroupApplications(state.MyGroup?.Id ?? "", cancellationToken);
+                    GroupApplications = initialApplications.Applications.ToImmutableArray();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, "Failed to initialize applications");
+                }
+                finally { IsLoadingApplications = false; }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to initialize applications");
-            }
-            finally { IsLoadingApplications = false; }
 
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await foreach (var update in _client.SubscribeGroupApplications(state.MyGroup.Id, cancellationToken))
+                    await foreach (var update in _client.SubscribeGroupApplications(state.MyGroup?.Id, cancellationToken))
                     {
                         if (cancellationToken.IsCancellationRequested)
                         {
@@ -434,13 +481,23 @@ namespace Gw2Lfg
                         switch (update.UpdateCase)
                         {
                             case Proto.GroupApplicationUpdate.UpdateOneofCase.NewApplication:
-                                AddApplication(update.NewApplication);
+                                if (update.NewApplication.AccountName == state.AccountName)
+                                    AddMyApplication(update.NewApplication);
+                                else
+                                    AddApplication(update.NewApplication);
                                 break;
                             case Proto.GroupApplicationUpdate.UpdateOneofCase.RemovedApplicationId:
+                                // Since we don't know who's application this was, we just remove
+                                // it from both and rely on the fact that it's a NOOP if the groups
+                                // is not in the list.
+                                RemoveMyApplication(update.RemovedApplicationId);
                                 RemoveApplication(update.RemovedApplicationId);
                                 break;
                             case Proto.GroupApplicationUpdate.UpdateOneofCase.UpdatedApplication:
-                                UpdateApplication(update.UpdatedApplication);
+                                if (update.UpdatedApplication.AccountName == state.AccountName)
+                                    UpdateMyApplication(update.UpdatedApplication);
+                                else
+                                    UpdateApplication(update.UpdatedApplication);
                                 break;
                         }
                     }
@@ -543,10 +600,10 @@ namespace Gw2Lfg
             {
                 await RefreshGroupsAndSubscribe(state, cancellationToken);
             }
-                        catch (OperationCanceledException)
-                        {
-                            // Normal cancellation, ignore
-                        }
+            catch (OperationCanceledException)
+            {
+                // Normal cancellation, ignore
+            }
             catch (Exception ex)
             {
                 Logger.Error(ex, "TrySubscribeApplications error");
