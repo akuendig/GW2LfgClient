@@ -1,30 +1,24 @@
 {
-    "name": "GW2 Group Finder",
-    "version": "1.0.0",
+    "name": "GW2 Community LFG",
+    "version": "0.1.0",
     "namespace": "GW2Lfg",
     "package": "GW2LfgClient.dll",
     "manifest_version": 1,
-    "description": "A Guild Wars 2 group finder module for Blish HUD",
+    "description": "A Guild Wars 2 LFG with additional features for group creators.",
     "dependencies": {
         "bh.blishhud": ">=1.0.0"
     },
-    "url": "https://github.com/yourusername/GW2Lfg",
+    "url": "https://github.com/akuendig/GW2LfgClient",
     "contributors": [
         {
-            "name": "Your Name",
-            "username": "yourusername"
+            "name": "Adrian Kündig",
+            "username": "akuendig"
         }
     ],
-    "directories": ["grpc_library"],
-    "enabled_without_gw2": false,
     "api_permissions": {
         "account": {
             "optional": false,
             "details": "Required for account identification"
-        },
-        "characters": {
-            "optional": true,
-            "details": "Used to display character information"
         }
     }
 }
