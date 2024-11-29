@@ -4,7 +4,7 @@
     "namespace": "GW2Lfg",
     "package": "GW2LfgClient.dll",
     "manifest_version": 1,
-    "description": "A Guild Wars 2 LFG with additional features for group creators.",
+    "description": "A Guild Wars 2 LFG with additional features for group creators. This is an alpha version.",
     "dependencies": {
         "bh.blishhud": ">=1.0.0"
     },

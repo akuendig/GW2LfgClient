@@ -86,7 +86,7 @@ namespace Gw2Lfg
             )
             {
                 Parent = GameService.Graphics.SpriteScreen,
-                Title = "Community LFG",
+                Title = "Community LFG (Alpha)",
                 // Emblem = ContentsManager.GetTexture("controls/window/156022"),
                 Subtitle = "",
                 SavesPosition = true,
