@@ -39,7 +39,7 @@ namespace Gw2Lfg
                 Height = 30,
                 Top = (applicantInfo.Height - 30) / 2,
                 Width = applicantInfo.Width,
-                BasicTooltipText = FormatKillProofDetails(application.KillProof),
+                BasicTooltipText = application.AccountName + "\n" + FormatKillProofDetails(application.KillProof),
                 Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
             };
             applicantInfo.Resized += (s, e) =>
