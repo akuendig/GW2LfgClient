@@ -1,0 +1,106 @@
+name: Concatenate Repository Files
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches: [ main ]  # Or trigger on push to main
+
+jobs:
+  concatenate:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libmagic1
+
+    - name: Create concatenation script
+      run: |
+        cat > concat_repo.py << 'EOL'
+        import os
+        from pathlib import Path
+        import magic
+
+        repo_name = os.environ.get('GITHUB_REPOSITORY', '').split('/')[-1] or 'repository'
+
+        EXCLUDE_EXTENSIONS = {
+            '.exe', '.dll', '.so', '.dylib', '.zip', '.tar', '.gz', '.rar',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.svg', '.webp',
+            '.mp3', '.mp4', '.wav', '.avi', '.mov', '.pdf', '.doc', '.docx',
+            '.xls', '.xlsx', '.pyc', '.pyo', '.pyd', '.db', '.sqlite', '.sqlite3',
+            '.sum'
+        }
+
+        EXCLUDE_DIRS = {
+            '.git', '.github', 'node_modules', 'venv', '.env', '.venv',
+            'build', 'dist', '__pycache__', '.idea', '.vscode'
+        }
+
+        def is_text_file(file_path):
+            """Check if a file is a text file using libmagic"""
+            mime = magic.Magic(mime=True)
+            file_type = mime.from_file(str(file_path))
+            return file_type.startswith('text/') or '/json' in file_type or '/xml' in file_type
+
+        def process_file(file_path):
+            """Process a single file and return its content with metadata"""
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    return f"\n### File: {file_path} ###\n{content}\n"
+            except UnicodeDecodeError:
+                return f"\n### File: {file_path} ### [Binary or non-UTF-8 file - skipped]\n"
+
+        def main():
+            output = []
+            repo_root = Path('.')
+
+            output.append(f"# Repository: {repo_name}")
+            output.append(f"# Generated: {os.environ.get('GITHUB_SHA', 'unknown commit')}")
+            output.append("")
+
+            for path in repo_root.rglob('*'):
+                if path.is_dir() or any(x in path.parts for x in EXCLUDE_DIRS):
+                    continue
+
+                if path.suffix.lower() in EXCLUDE_EXTENSIONS:
+                    continue
+
+                if path.stat().st_size > 10_000_000:
+                    output.append(f"\n### File: {path} ### [Skipped - file too large]\n")
+                    continue
+
+                if is_text_file(path):
+                    output.append(process_file(path))
+
+            output_filename = f"{repo_name}_concat.txt"
+            
+            with open(output_filename, 'w', encoding='utf-8') as f:
+                f.write("\n".join(output))
+            
+            return output_filename
+
+        if __name__ == '__main__':
+            main()
+        EOL
+
+    - name: Install Python dependencies
+      run: pip install python-magic
+
+    - name: Run concatenation script
+      run: python concat_repo.py
+
+    - name: Upload concatenated file
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ github.event.repository.name }}-content
+        path: ${{ github.event.repository.name }}_concat.txt
