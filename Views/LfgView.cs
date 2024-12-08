@@ -56,23 +56,44 @@ namespace Gw2Lfg
 
         private void BuildMainLayout(Container buildPanel)
         {
+            var statusIndicator = new StatusIndicator
+            {
+                Parent = buildPanel,
+                Left = PADDING,
+                Bottom = buildPanel.ContentRegion.Height,
+            };
+            buildPanel.Resized += (s, e) =>
+            {
+                statusIndicator.Bottom = buildPanel.ContentRegion.Height;
+            };
+
+            _viewModel.IsConnectedChanged += (s, e) => UpdateStatusIndicator(statusIndicator);
+            _viewModel.LastHeartbeatChanged += (s, e) => UpdateStatusIndicator(statusIndicator);
+
+            // Update initial state
+            statusIndicator.UpdateStatus(_viewModel.IsConnected, _viewModel.LastHeartbeat);
+
             var groupListPanel = new GroupListPanel(_viewModel, _lfgClient)
             {
                 Parent = buildPanel,
                 Width = (int)(buildPanel.ContentRegion.Width * 0.6f),
+                Height = buildPanel.ContentRegion.Height - statusIndicator.Height - PADDING,
             };
             var groupManagementPanel = new GroupManagementPanel(_lfgClient, _viewModel)
             {
                 Parent = buildPanel,
                 Left = groupListPanel.Right + PADDING,
                 Width = buildPanel.ContentRegion.Width - groupListPanel.Width - PADDING,
-                HeightSizingMode = SizingMode.Fill,
+                Height = buildPanel.ContentRegion.Height - statusIndicator.Height - PADDING,
                 ShowBorder = true,
             };
             buildPanel.Resized += (s, e) =>
             {
                 groupListPanel.Width = (int)(buildPanel.ContentRegion.Width * 0.6f);
-                groupListPanel.Width = buildPanel.ContentRegion.Width - groupListPanel.Width - PADDING;
+                groupListPanel.Height = buildPanel.ContentRegion.Height - statusIndicator.Height - PADDING;
+                groupManagementPanel.Left = groupListPanel.Right + PADDING;
+                groupManagementPanel.Width = buildPanel.ContentRegion.Width - groupListPanel.Width - PADDING;
+                groupManagementPanel.Height = buildPanel.ContentRegion.Height - statusIndicator.Height - PADDING;
             };
         }
 
@@ -84,6 +105,11 @@ namespace Gw2Lfg
         private void UnregisterEventHandlers()
         {
             _viewModel.ApiKeyChanged -= OnApiKeyChanged;
+        }
+
+        private void UpdateStatusIndicator(StatusIndicator indicator)
+        {
+            indicator.UpdateStatus(_viewModel.IsConnected, _viewModel.LastHeartbeat);
         }
 
         private void OnApiKeyChanged(object sender, LfgViewModelPropertyChangedEventArgs<string> e)

@@ -25,8 +25,6 @@ namespace Gw2Lfg
             _viewModel = viewModel;
             _lfgClient = lfgClient;
 
-            HeightSizingMode = SizingMode.Fill;
-
             BuildLayout(viewModel.State);
             RegisterEvents();
         }

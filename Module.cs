@@ -9,8 +9,15 @@ using Blish_HUD.Modules.Managers;
 using System;
 using System.ComponentModel.Composition;
 using System.Threading.Tasks;
-using System.Net.Http;
 using System.Threading;
+
+// TODO:
+// - Add activity status to applications
+// - Add sorting groups and applications by activity
+// - Add blocklist of group creators
+// - Add group list refresh button
+// - Test that groups and applications show scroll bars when needed
+// - Add a way to reset the API key
 
 namespace Gw2Lfg
 {
@@ -81,8 +88,8 @@ namespace Gw2Lfg
             // Note that the windowRegion and contentRegion are matched to the size of the background image.
             _lfgWindow = new StandardWindow(
                 ContentsManager.GetTexture("textures/mainwindow_background.png"),
-                new Rectangle(40, 26, 913, 691),  // The windowRegion
-                new Rectangle(70, 71, 839, 605)   // The contentRegion
+                new Rectangle(40, 20, 915, 700),  // The windowRegion, must match the size of the background image
+                new Rectangle(50, 50, 865, 650)   // The contentRegion
             )
             {
                 Parent = GameService.Graphics.SpriteScreen,
@@ -91,6 +98,8 @@ namespace Gw2Lfg
                 Subtitle = "",
                 SavesPosition = true,
                 Id = $"{nameof(Gw2LfgModule)}_Gw2LfgModule_9A19103F-16F7-4668-BE54-9A1E7A4F7556",
+                CanResize = true,
+                Size = new Point(750, 650),
             };
             _lfgWindow.PropertyChanged += (s, e) =>
             {

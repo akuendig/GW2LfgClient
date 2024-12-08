@@ -26,7 +26,9 @@ namespace Gw2Lfg
         Proto.Group? MyGroup = null,
         bool Visible = false,
         bool IsLoadingGroups = false,
-        bool IsLoadingApplications = false
+        bool IsLoadingApplications = false,
+        bool IsConnected = false,
+        DateTimeOffset LastHeartbeat = default
     );
 
     public class LfgViewModelPropertyChangedEventArgs<T>(LfgModel oldState, LfgModel newState, Func<LfgModel, T> lens) :
@@ -52,6 +54,8 @@ namespace Gw2Lfg
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? VisibleChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingGroupsChanged;
         public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsLoadingApplicationsChanged;
+        public event EventHandler<LfgViewModelPropertyChangedEventArgs<bool>>? IsConnectedChanged;
+        public event EventHandler<LfgViewModelPropertyChangedEventArgs<DateTimeOffset>>? LastHeartbeatChanged;
 
         private SimpleGrpcWebClient _grpcClient;
         private LfgClient _client;
@@ -241,6 +245,32 @@ namespace Gw2Lfg
                 s => s.IsLoadingApplications,
                 (s, v) => s with { IsLoadingApplications = v },
                 IsLoadingApplicationsChanged);
+        }
+
+        public bool IsConnected
+        {
+            get
+            {
+                lock (_stateLock) return _state.IsConnected;
+            }
+            private set => SetState(
+                value,
+                s => s.IsConnected,
+                (s, v) => s with { IsConnected = v },
+                IsConnectedChanged);
+        }
+
+        public DateTimeOffset LastHeartbeat
+        {
+            get
+            {
+                lock (_stateLock) return _state.LastHeartbeat;
+            }
+            private set => SetState(
+                value,
+                s => s.LastHeartbeat,
+                (s, v) => s with { LastHeartbeat = v },
+                LastHeartbeatChanged);
         }
 
         public void AddGroup(Proto.Group group)
@@ -656,6 +686,8 @@ namespace Gw2Lfg
                         {
                             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                             await _client.SendHeartbeat(cts.Token);
+                            IsConnected = true;
+                            LastHeartbeat = DateTimeOffset.UtcNow;
                         }
                         catch (OperationCanceledException)
                         {
@@ -664,6 +696,7 @@ namespace Gw2Lfg
                         catch (Exception ex)
                         {
                             Logger.Error(ex, "Heartbeat error");
+                            IsConnected = false;
                         }
                     }
                     await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
@@ -672,6 +705,10 @@ namespace Gw2Lfg
             catch (OperationCanceledException)
             {
                 // Normal cancellation, ignore
+            }
+            finally
+            {
+                IsConnected = false;
             }
         }
 
