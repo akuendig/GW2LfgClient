@@ -228,6 +228,18 @@ namespace Gw2Lfg
                 panel.Visible = visible;
             }
 
+            var sortedPanels = _groupPanels.Values
+                .OrderByDescending(p => p.Status == GroupListRowPanel.GroupStatus.Active)
+                .ThenByDescending(p => p.Status == GroupListRowPanel.GroupStatus.Away)
+                .ThenByDescending(p => p.Status == GroupListRowPanel.GroupStatus.Inactive)
+                .ToList();
+
+            _groupsFlowPanel.ClearChildren();
+            foreach (var panel in sortedPanels)
+            {
+                panel.Parent = _groupsFlowPanel;
+            }
+
             _groupsFlowPanel.RecalculateLayout();
         }
     }

@@ -3,6 +3,7 @@
 using Blish_HUD;
 using Blish_HUD.Content;
 using Blish_HUD.Controls;
+using Gw2Lfg.Proto;
 using Microsoft.Xna.Framework;
 using System;
 
@@ -10,16 +11,31 @@ namespace Gw2Lfg
 {
     public class ApplicationListRowPanel : Panel
     {
-        private readonly Proto.Group _group;
-        public Proto.GroupApplication Application { get; set; }
+        private static readonly Logger Logger = Logger.GetLogger<ApplicationListRowPanel>();
+        private const int PADDING = 10;
+        private readonly System.Timers.Timer _statusUpdateTimer;
+        private Label _statusLabel;
 
-        public ApplicationListRowPanel(Proto.GroupApplication application, Proto.Group group)
+        private readonly Group _group;
+        public GroupApplication Application { get; private set; }
+        public DateTimeOffset LastUpdated { get; private set; }
+
+        public ApplicationListRowPanel(GroupApplication application, Group group)
         {
             _group = group;
             Application = application;
             Height = 50;
             ShowBorder = true;
 
+            _statusUpdateTimer = new System.Timers.Timer(10000); // 10 second interval
+            _statusUpdateTimer.Elapsed += (s, e) => UpdateStatus(Application);
+            _statusUpdateTimer.Start();
+
+            BuildLayout(application);
+        }
+
+        private void BuildLayout(GroupApplication application)
+        {
             var applicantInfo = new Panel
             {
                 Parent = this,
@@ -39,7 +55,7 @@ namespace Gw2Lfg
                 Height = 30,
                 Top = (applicantInfo.Height - 30) / 2,
                 Width = applicantInfo.Width,
-                BasicTooltipText = application.AccountName + "\n" + FormatKillProofDetails(application.KillProof),
+                BasicTooltipText = application.AccountName + "\n\n" + FormatKillProofDetails(application.KillProof),
                 Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size16, ContentService.FontStyle.Regular)
             };
             applicantInfo.Resized += (s, e) =>
@@ -103,20 +119,82 @@ namespace Gw2Lfg
                 kpWarning.Right = buttonPanel.Left - 10;
                 kpWarning.Top = (Height - 40) / 2;
             };
+
+            var statusPanel = new Panel
+            {
+                Parent = this,
+                Top = 5,
+                Left = applicantInfo.Right + PADDING,
+                Width = 100,
+                Height = applicantInfo.Height,
+            };
+            applicantInfo.Resized += (s, e) =>
+            {
+                statusPanel.Left = applicantInfo.Right + PADDING;
+                statusPanel.Height = applicantInfo.Height;
+            };
+
+            _statusLabel = new Label
+            {
+                Parent = statusPanel,
+                Width = statusPanel.Width,
+                Height = 30,
+                VerticalAlignment = VerticalAlignment.Middle,
+                Top = (statusPanel.Height - 30) / 2,
+                Font = GameService.Content.GetFont(ContentService.FontFace.Menomonia, ContentService.FontSize.Size12, ContentService.FontStyle.Regular)
+            };
+            statusPanel.Resized += (s, e) =>
+            {
+                _statusLabel.Width = statusPanel.Width;
+                _statusLabel.Top = (statusPanel.Height - 30) / 2;
+            };
+
+            UpdateStatus(application);
+        }
+
+        private void UpdateStatus(Proto.GroupApplication application)
+        {
+            if (_statusLabel == null) return;
+
+            var timeSinceUpdate = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(application.UpdatedAtSec);
+            var text = timeSinceUpdate.TotalMinutes switch
+            {
+                < 1 => "Active now",
+                < 2 => "1m ago",
+                < 60 => $"{(int)timeSinceUpdate.TotalMinutes}m ago",
+                < 120 => "1h ago",
+                _ => $"{(int)timeSinceUpdate.TotalHours}h ago"
+            };
+            _statusLabel.Text = text;
+
+            LastUpdated = DateTimeOffset.UtcNow;
+        }
+
+        public void Update(GroupApplication updatedApplication)
+        {
+            Application = updatedApplication;
+
+            UpdateStatus(updatedApplication);
+        }
+
+        protected override void DisposeControl() 
+        {
+            _statusUpdateTimer?.Dispose();
+            base.DisposeControl();
         }
 
         public bool HasEnoughKillProof()
         {
-            if (_group == null || _group.KillProofMinimum == 0 || _group.KillProofId == Proto.KillProofId.KpUnknown)
+            if (_group == null || _group.KillProofMinimum == 0 || _group.KillProofId == KillProofId.KpUnknown)
             {
                 return true;
             }
 
             return _group.KillProofId switch
             {
-                Proto.KillProofId.KpLi => Application.KillProof.Li >= _group.KillProofMinimum,
-                Proto.KillProofId.KpUfe => Application.KillProof.Ufe >= _group.KillProofMinimum,
-                Proto.KillProofId.KpBskp => Application.KillProof.Bskp >= _group.KillProofMinimum,
+                KillProofId.KpLi => Application.KillProof.Li >= _group.KillProofMinimum,
+                KillProofId.KpUfe => Application.KillProof.Ufe >= _group.KillProofMinimum,
+                KillProofId.KpBskp => Application.KillProof.Bskp >= _group.KillProofMinimum,
                 _ => false,
             };
         }

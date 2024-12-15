@@ -12,8 +12,6 @@ using System.Threading.Tasks;
 using System.Threading;
 
 // TODO:
-// - Add activity status to applications
-// - Add sorting groups and applications by activity
 // - Add blocklist of group creators
 // - Add group list refresh button
 // - Test that groups and applications show scroll bars when needed

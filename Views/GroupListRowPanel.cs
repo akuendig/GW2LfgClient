@@ -24,6 +24,14 @@ namespace Gw2Lfg
         private StandardButton _applyButton;
         private StandardButton _cancelApplicationButton;
         private Label _myGroupLabel;
+        public enum GroupStatus
+        {
+            Active,
+            Away,
+            Inactive
+        }
+
+        public GroupStatus Status { get; private set; }
 
         public GroupListRowPanel(Proto.Group group, LfgViewModel viewModel, LfgClient lfgClient)
         {
@@ -301,16 +309,19 @@ namespace Gw2Lfg
             {
                 _statusLabel.Text = "Active";
                 _statusLabel.TextColor = Color.Green;
+                Status = GroupStatus.Active;
             }
             else if (timeSinceHeartbeat < TimeSpan.FromMinutes(5))
             {
                 _statusLabel.Text = "Away";
                 _statusLabel.TextColor = Color.Yellow;
+                Status = GroupStatus.Away;
             }
             else
             {
                 _statusLabel.Text = "Inactive";
                 _statusLabel.TextColor = Color.Red;
+                Status = GroupStatus.Inactive;
             }
         }
 

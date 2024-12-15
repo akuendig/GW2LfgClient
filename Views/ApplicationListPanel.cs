@@ -110,7 +110,9 @@ namespace Gw2Lfg
 
             _applicationsFlowPanel.SortChildren<ApplicationListRowPanel>((a, b) =>
             {
-                return -a.HasEnoughKillProof().CompareTo(b.HasEnoughKillProof());
+                int killProofComparison = -a.HasEnoughKillProof().CompareTo(b.HasEnoughKillProof());
+                if (killProofComparison != 0) return killProofComparison;
+                return -a.LastUpdated.CompareTo(b.LastUpdated);
             });
         }
     }
