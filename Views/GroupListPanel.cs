@@ -19,6 +19,7 @@ namespace Gw2Lfg
         private FlowPanel? _groupsFlowPanel;
         private LoadingSpinner? _groupsLoadingSpinner;
         private TextBox? _searchBox;
+        private StandardButton _refreshButton;
 
         public GroupListPanel(LfgViewModel viewModel, LfgClient lfgClient)
         {
@@ -66,13 +67,24 @@ namespace Gw2Lfg
                 Left = PADDING,
                 Top = 5,
                 Height = 30,
-                Width = filterPanel.Width - (PADDING * 2),
+                Width = filterPanel.Width - (PADDING * 3) - 100,
                 PlaceholderText = "Search groups...",
             };
 
+            _refreshButton = new StandardButton
+            {
+                Parent = filterPanel,
+                Text = "Refresh",
+                Left = _searchBox.Right + PADDING,
+                Top = 5,
+                Height = 30,
+                Width = 100,
+            };
+            _refreshButton.Click += OnRefreshButtonClicked;
             filterPanel.Resized += (s, e) =>
             {
-                _searchBox.Width = filterPanel.Width - (PADDING * 2);
+                _searchBox.Width = filterPanel.Width - (PADDING * 3) - 100;
+                _refreshButton.Left = _searchBox.Right + PADDING;
             };
 
             // Debounce search to avoid excessive updates
@@ -241,6 +253,11 @@ namespace Gw2Lfg
             }
 
             _groupsFlowPanel.RecalculateLayout();
+        }
+
+        private void OnRefreshButtonClicked(object sender, System.EventArgs e)
+        {
+            _viewModel.RefreshGroupsAsync();
         }
     }
 }

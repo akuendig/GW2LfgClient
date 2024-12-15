@@ -63,6 +63,7 @@ namespace Gw2Lfg
         private CancellationTokenSource _groupsSubCts = new();
         private CancellationTokenSource _applicationsSubCts = new();
         private CancellationTokenSource _heartbeatCts = new();
+        private readonly SemaphoreSlim _refreshGroupsSemaphore = new(1, 1);
 
         public LfgViewModel()
         {
@@ -421,23 +422,7 @@ namespace Gw2Lfg
 
         private async Task RefreshGroupsAndSubscribe(LfgModel state, CancellationToken cancellationToken = default)
         {
-            // TODO: This should probably retry in case the server goes away?
-            if (string.IsNullOrWhiteSpace(state.ApiKey))
-            {
-                return;
-            }
-
-            try
-            {
-                IsLoadingGroups = true;
-                var initialGroups = await _client.ListGroups(cancellationToken);
-                Groups = initialGroups.Groups.ToImmutableArray();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex, "Failed to initialize groups");
-            }
-            finally { IsLoadingGroups = false; }
+            await RefreshGroupsAsync();
 
             _ = Task.Run(async () =>
             {
@@ -709,6 +694,31 @@ namespace Gw2Lfg
             finally
             {
                 IsConnected = false;
+            }
+        }
+
+        public async Task RefreshGroupsAsync()
+        {
+            if (string.IsNullOrWhiteSpace(State.ApiKey))
+            {
+                return;
+            }
+
+            await _refreshGroupsSemaphore.WaitAsync();
+            try
+            {
+                IsLoadingGroups = true;
+                var initialGroups = await _client.ListGroups(CancellationToken.None);
+                Groups = initialGroups.Groups.ToImmutableArray();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex, "Failed to refresh groups");
+            }
+            finally
+            {
+                IsLoadingGroups = false;
+                _refreshGroupsSemaphore.Release();
             }
         }
 

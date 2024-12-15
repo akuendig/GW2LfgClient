@@ -13,7 +13,6 @@ using System.Threading;
 
 // TODO:
 // - Add blocklist of group creators
-// - Add group list refresh button
 // - Test that groups and applications show scroll bars when needed
 // - Add a way to reset the API key
 
